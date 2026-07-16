@@ -10,9 +10,9 @@ import (
 )
 
 func addRoutes(r *chi.Mux, cfg *Config, s *Services) {
-	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
+	r.Get("/", func(w http.ResponseWriter, _ *http.Request) {
 		common.WriteJSON(w, http.StatusOK, "Sift API")
 	})
 
-	r.Get("/", handlers.HandleHealth())
+	r.Get("/health", handlers.HandleHealth())
 }

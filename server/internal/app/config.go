@@ -18,17 +18,10 @@ type Config struct {
 	AppEnv               string   `env:"APP_ENV"`
 	DatabaseURL          string   `env:"DATABASE_URL"`
 	FrontendAppURL       string   `env:"FRONTEND_APP_URL"`
-	WorkOSAPIKey         string   `env:"WORKOS_API_KEY"`
-	WorkOSClientID       string   `env:"WORKOS_CLIENT_ID"`
-	WorkOSCookiePassword string   `env:"WORKOS_COOKIE_PASSWORD"`
-	WorkOSRedirectURI    string   `env:"WORKOS_REDIRECT_URI"`
 	SecretKey            string   `env:"SECRET_KEY"`
 	InternalServiceToken string   `env:"INTERNAL_SERVICE_TOKEN"`
-	PythonAIBaseURL      string   `env:"PYTHON_AI_BASE_URL"`
 	AllowedOrigins       []string `env:"ALLOWED_ORIGINS" envSeparator:","`
 	OpenRouterAPIKey     string   `env:"OPENROUTER_API_KEY"`
-	DevBypassAuth        bool     `env:"DEV_BYPASS_AUTH" envDefault:"false"`
-	DevBypassAuthEmail   string   `env:"DEV_BYPASS_AUTH_EMAIL" envDefault:"dev@example.com"`
 }
 
 func NewConfig(_ func(string) string) *Config {
@@ -38,8 +31,6 @@ func NewConfig(_ func(string) string) *Config {
 	if err != nil {
 		panic(fmt.Errorf("parse environment config: %w", err))
 	}
-
-	cfg.PythonAIBaseURL = strings.TrimRight(cfg.PythonAIBaseURL, "/")
 
 	if len(cfg.AllowedOrigins) == 0 {
 		if cfg.FrontendAppURL != "" {
@@ -52,8 +43,6 @@ func NewConfig(_ func(string) string) *Config {
 	return &cfg
 }
 
-// NewLogger builds the application logger. Call once at startup and inject the
-// returned value into the HTTP stack and services (do not store it on Config).
 func NewLogger(getenv func(string) string) *zap.Logger {
 	if getenv("APP_ENV") == "production" {
 		return zap.Must(zap.NewProduction())
