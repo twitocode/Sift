@@ -15,25 +15,30 @@ type RobotsChanInfo struct {
 	name   string
 	robots robotstxt.RobotsData
 }
+
+type SiteMetadata struct {
+	URL string
+}
 type Crawler struct {
 	// TODO: make concurrent
 	queue    ProcessingQueue
 	maxDepth int
-	graph    SiteGraph
 	log      *zap.Logger
 
 	//domain as key
 	robots *SafeMap[string, robotstxt.RobotsData]
+	//url as key
+	crawledSites *SafeMap[string, SiteMetadata]
 	sync.RWMutex
 }
 
 func New(logger *zap.Logger) *Crawler {
 	return &Crawler{
-		maxDepth: 3,
-		queue:    ProcessingQueue{},
-		graph:    SiteGraph{},
-		log:      logger,
-    robots: NewSafeMap[string,robotstxt.RobotsData](),
+		maxDepth:     3,
+		queue:        ProcessingQueue{},
+		log:          logger,
+		robots:       NewSafeMap[string, robotstxt.RobotsData](),
+		crawledSites: NewSafeMap[string, SiteMetadata](),
 	}
 }
 
@@ -46,14 +51,20 @@ func (c *Crawler) Start() {
 	robotsChan := make(chan RobotsChanInfo, 512)
 
 	for _, url := range seed {
-		processingQueue.Push(Item{
+		processingQueue.Push(Job{
 			url,
 		})
 	}
 
-	go processingQueue.Run(ctx, func(item Item) {
-		spider := NewSpider(ctx, c.log, item, processingQueue, c.robots, robotsChan)
-		spider.Run()
+	go processingQueue.Run(ctx, func(job Job) {
+		spider := NewSpider(ctx, c.log, job, processingQueue, c.robots, robotsChan, c.crawledSites)
+		result := spider.Run()
+
+		if result == nil {
+			return
+		}
+
+		c.crawledSites.Set(result.URL, *result)
 	})
 
 	for {

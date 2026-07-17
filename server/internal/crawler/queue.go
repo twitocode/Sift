@@ -7,46 +7,40 @@ import (
 	"go.uber.org/zap"
 )
 
-type Item struct {
+type Job struct {
 	url string
 }
 
 type ProcessingQueue struct {
-	items chan Item
-	log   *zap.Logger
-	wg    sync.WaitGroup
+	jobs chan Job
+	log  *zap.Logger
+	wg   sync.WaitGroup
 }
 
 func NewProcessingQueue(buffer int, logger *zap.Logger) *ProcessingQueue {
 	return &ProcessingQueue{
-		items: make(chan Item, buffer),
-		log:   logger,
+		jobs: make(chan Job, buffer),
+		log:  logger,
 	}
 }
 
-func (q *ProcessingQueue) Push(item Item) {
-	//q.log.Debug("URL added to queue", zap.String("url", item.url))
-	q.items <- item
+func (q *ProcessingQueue) Push(job Job) {
+	//q.log.Debug("URL added to queue", zap.String("url", job.url))
+	q.jobs <- job
 }
 
-func (q *ProcessingQueue) Run(ctx context.Context, processFunc func(item Item)) {
-	count := 0
+func (q *ProcessingQueue) Run(ctx context.Context, processFunc func(job Job)) {
 	for {
 		select {
-		case item, ok := <-q.items:
+		case job, ok := <-q.jobs:
 			if !ok {
 				return
-			}
-
-			if count > 10 {
-        break
 			}
 			q.wg.Add(1)
 
 			go func() {
 				defer q.wg.Done()
-				processFunc(item)
-        count++
+				processFunc(job)
 			}()
 
 		case <-ctx.Done():
@@ -56,6 +50,6 @@ func (q *ProcessingQueue) Run(ctx context.Context, processFunc func(item Item)) 
 }
 
 func (q *ProcessingQueue) Close() {
-	close(q.items) //stops accepting
+	close(q.jobs) //stops accepting
 	q.wg.Wait()
 }

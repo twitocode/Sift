@@ -12,62 +12,66 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	sitemap "github.com/oxffaa/gopher-parse-sitemap"
 	"github.com/temoto/robotstxt"
 	"go.uber.org/zap"
 )
 
-var EXCLUDED_REGEX = regexp.MustCompile(`(?i)\.(jpg|jpeg|png|gif|css|js|pdf|zip)$|(login|cart|admin)`)
-
-var MAX_DEPTH = 3
-
 type Spider struct {
-	seed       string
-	item       Item
+	job        Job
 	queue      *ProcessingQueue
 	log        *zap.Logger
 	ctx        context.Context
 	robotsChan chan<- RobotsChanInfo
 
-	client *http.Client
-	robots *SafeMap[string, robotstxt.RobotsData]
+	client       *http.Client
+	robots       *SafeMap[string, robotstxt.RobotsData]
+	crawledSites *SafeMap[string, SiteMetadata]
 }
 
-func NewSpider(ctx context.Context, logger *zap.Logger, item Item, queue *ProcessingQueue, robots *SafeMap[string, robotstxt.RobotsData], robotsChan chan<- RobotsChanInfo) *Spider {
+func NewSpider(ctx context.Context, logger *zap.Logger, job Job, queue *ProcessingQueue, robots *SafeMap[string, robotstxt.RobotsData], robotsChan chan<- RobotsChanInfo, crawledSites *SafeMap[string, SiteMetadata]) *Spider {
 	return &Spider{
-		seed:       item.url,
-		queue:      queue,
-		log:        logger,
-		ctx:        ctx,
-		robots:     robots,
-		client:     getHttpClient(),
-		item:       item,
-		robotsChan: robotsChan,
+		queue:        queue,
+		log:          logger,
+		ctx:          ctx,
+		robots:       robots,
+		client:       getHttpClient(),
+		job:          job,
+		robotsChan:   robotsChan,
+		crawledSites: crawledSites,
 	}
 }
 
-func (sp *Spider) Run() {
+func (sp *Spider) Run() *SiteMetadata {
 	client := getHttpClient()
-	u, err := url.Parse(sp.seed)
+	u, err := url.Parse(sp.job.url)
+
 	if err != nil {
 		sp.log.Error("error with seed url given %s", zap.Error(err))
-		return
+		return nil
 	}
 
+	if sp.crawledSites.Contains(sp.job.url) {
+		return nil
+	}
 	hostname := u.Hostname()
 	sp.processRobots()
+	//sp.parseSitemap(sp.job.url)
 
-	if !sp.shouldCrawl(sp.seed) {
-		return
+	if !sp.shouldCrawl(sp.job.url) {
+		return nil
 	}
 
-	res, err := client.Get(sp.seed)
+	res, err := client.Get(sp.job.url)
 	if err != nil {
+		if !strings.Contains(err.Error(), "certificate") {
+			sp.log.Error("fetching seed (%s) not working",
+				zap.String("seed", sp.job.url),
+				zap.Error(err),
+				zap.Bool("shouldCrawl", sp.shouldCrawl(sp.job.url)))
 
-		sp.log.Error("fetching seed (%s) not working",
-			zap.String("seed", sp.seed),
-			zap.Error(err),
-			zap.Bool("shouldCrawl", sp.shouldCrawl(sp.seed)))
-		return
+		}
+		return nil
 	}
 	defer res.Body.Close()
 
@@ -75,15 +79,19 @@ func (sp *Spider) Run() {
 		if res.StatusCode == 429 {
 			sp.log.Debug("Rate limited")
 		}
-		return
+		return nil
 	}
 
 	foundUrls := sp.findLinks(res, hostname)
 
-	sp.log.Debug("Finished Processing", zap.String("url", sp.seed))
+	sp.log.Debug("Finished Processing", zap.String("url", sp.job.url))
 
 	for _, url := range foundUrls {
-		sp.queue.Push(Item{url})
+		sp.queue.Push(Job{url})
+	}
+
+	return &SiteMetadata{
+		URL: sp.job.url,
 	}
 }
 
@@ -113,7 +121,7 @@ func (sp *Spider) findLinks(res *http.Response, hostname string) []string {
 		href = strings.Split(href, "?")[0]
 
 		if !parsedHref.IsAbs() {
-			href = sp.seed + href
+			href = sp.job.url + href
 		}
 
 		allowed := true
@@ -175,9 +183,9 @@ func (sp *Spider) shouldCrawl(rawURL string) bool {
 }
 
 func (sp *Spider) processRobots() {
-	url, err := url.Parse(sp.item.url)
+	url, err := url.Parse(sp.job.url)
 	if err != nil {
-		sp.log.Error("Invalid url (robots.txt)", zap.String("url", sp.item.url))
+		sp.log.Error("Invalid url (robots.txt)", zap.String("url", sp.job.url))
 	}
 	hostname := url.Hostname()
 
@@ -204,4 +212,35 @@ func (sp *Spider) processRobots() {
 			robots: *robots,
 		}
 	}
+}
+
+func (sp *Spider) parseSitemap(site string) error {
+	err := sitemap.ParseIndexFromSite(site+"/sitemap.xml", func(ie sitemap.IndexEntry) error {
+		sp.log.Debug("Found sitemap child", zap.String("url", ie.GetLocation()))
+		child := ie.GetLocation()
+		return sp.parseSitemap(child)
+
+	})
+
+	if err == nil {
+		//indices shouldn't have their own links to search
+		return nil
+	}
+
+	err = sitemap.ParseFromSite(site+"/sitemap.xml", func(e sitemap.Entry) error {
+		sp.log.Debug("Added from sitemap", zap.String("url", e.GetLocation()))
+		sp.queue.Push(Job{
+			url: e.GetLocation(),
+		})
+
+		return nil
+	})
+
+	if err != nil {
+		//might get situations where the sitemap is just a not found page
+		//sp.log.Error("Sitemap parsing error", zap.Error(err))
+		return nil
+	}
+
+	return nil
 }
