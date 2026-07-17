@@ -3,53 +3,128 @@ package crawler
 import (
 	"context"
 	"sync"
+	"time"
 
 	"go.uber.org/zap"
 )
 
+var MAX_DEPTH = 2
+
 type Job struct {
-	url string
+	url   string
+	depth int
+}
+
+type domainEntry struct {
+	ch   chan Job
+	stop chan struct{}
 }
 
 type ProcessingQueue struct {
-	jobs chan Job
-	log  *zap.Logger
-	wg   sync.WaitGroup
+	//domain as key
+	filteredJobs  *SafeMap[string, domainEntry]
+	pending       chan Job
+	maxSubPoolCap int
+	processFunc   func(job Job)
+	crawledSites  *SafeMap[string, SiteMetadata]
+
+	shutdownMu sync.Mutex
+	closed     bool
+
+	log *zap.Logger
+	wg  sync.WaitGroup
 }
 
-func NewProcessingQueue(buffer int, logger *zap.Logger) *ProcessingQueue {
+func NewProcessingQueue(buffer int, crawledSites *SafeMap[string, SiteMetadata], processFunc func(job Job), logger *zap.Logger) *ProcessingQueue {
 	return &ProcessingQueue{
-		jobs: make(chan Job, buffer),
-		log:  logger,
+		filteredJobs:  NewSafeMap[string, domainEntry](),
+		pending:       make(chan Job, buffer),
+		log:           logger,
+		maxSubPoolCap: 4,
+		processFunc:   processFunc,
+		crawledSites:  crawledSites,
+	}
+}
+func (q *ProcessingQueue) Push(job Job) {
+	q.shutdownMu.Lock()
+	if q.closed {
+		q.shutdownMu.Unlock()
+		return
+	}
+
+	if q.crawledSites.Contains(job.url) {
+		q.shutdownMu.Unlock()
+		return
+	}
+
+	domain, err := GetDomain(job.url)
+	if err != nil {
+		q.log.Warn("Invalid domain name", zap.String("url", job.url))
+		q.shutdownMu.Unlock()
+		return
+	}
+
+	entry, ok := q.filteredJobs.Get(domain)
+	if !ok {
+		entry = domainEntry{
+			ch:   make(chan Job, q.maxSubPoolCap),
+			stop: make(chan struct{}),
+		}
+		q.log.Debug("Proceessing new url", zap.String("url", job.url))
+		q.filteredJobs.Set(domain, entry)
+		q.wg.Add(1)
+		go q.consumeDomain(domain, entry)
+	}
+	q.shutdownMu.Unlock()
+
+	select {
+	case entry.ch <- job:
+	case <-entry.stop:
 	}
 }
 
-func (q *ProcessingQueue) Push(job Job) {
-	//q.log.Debug("URL added to queue", zap.String("url", job.url))
-	q.jobs <- job
-}
+func (q *ProcessingQueue) consumeDomain(domain string, entry domainEntry) {
+	defer q.wg.Done()
+	idleTimeout := 20 * time.Second
+	timer := time.NewTimer(idleTimeout)
+	defer timer.Stop()
 
-func (q *ProcessingQueue) Run(ctx context.Context, processFunc func(job Job)) {
 	for {
 		select {
-		case job, ok := <-q.jobs:
-			if !ok {
-				return
+		case job := <-entry.ch:
+			timer.Reset(idleTimeout)
+			if job.depth > MAX_DEPTH {
+				continue
 			}
-			q.wg.Add(1)
+			//time.Sleep(2 * time.Second)
+			q.processFunc(job)
 
-			go func() {
-				defer q.wg.Done()
-				processFunc(job)
-			}()
+		case <-timer.C:
+			q.shutdownMu.Lock()
+			if len(entry.ch) == 0 {
+				q.filteredJobs.Delete(domain)
+				close(entry.stop) // unblocks any Push currently racing to send here
+			}
+			q.shutdownMu.Unlock()
+			return
 
-		case <-ctx.Done():
+		case <-entry.stop:
 			return
 		}
 	}
 }
 
+func (q *ProcessingQueue) Run(ctx context.Context) {
+	<-ctx.Done()
+}
+
 func (q *ProcessingQueue) Close() {
-	close(q.jobs) //stops accepting
+	q.shutdownMu.Lock()
+	q.closed = true
+	close(q.pending)
+	q.filteredJobs.Range(func(k string, v domainEntry) {
+		close(v.stop)
+	})
+	q.shutdownMu.Unlock()
 	q.wg.Wait()
 }

@@ -46,17 +46,10 @@ func (c *Crawler) Start() {
 	c.log.Info("Starting logging")
 
 	ctx, cancel := context.WithCancel(context.Background())
-	processingQueue := NewProcessingQueue(512, c.log)
-
 	robotsChan := make(chan RobotsChanInfo, 512)
+	var processingQueue *ProcessingQueue
 
-	for _, url := range seed {
-		processingQueue.Push(Job{
-			url,
-		})
-	}
-
-	go processingQueue.Run(ctx, func(job Job) {
+	processingQueue = NewProcessingQueue(1024, c.crawledSites, func(job Job) {
 		spider := NewSpider(ctx, c.log, job, processingQueue, c.robots, robotsChan, c.crawledSites)
 		result := spider.Run()
 
@@ -65,22 +58,28 @@ func (c *Crawler) Start() {
 		}
 
 		c.crawledSites.Set(result.URL, *result)
-	})
+	}, c.log)
 
-	for {
-		info, ok := <-robotsChan
-		if !ok {
-			close(robotsChan)
-		}
-
-		c.Lock()
-		if _, ok := c.robots.Get(info.name); !ok {
-			c.robots.Set(info.name, info.robots)
-			c.log.Debug("Robots collection updated", zap.String("hostname", info.name))
-		}
-
-		c.Unlock()
+	for _, url := range seed {
+		processingQueue.Push(Job{
+			url,
+			0,
+		})
 	}
+
+	go processingQueue.Run(ctx)
+
+	go func() {
+		for info := range robotsChan {
+			c.Lock()
+			if _, ok := c.robots.Get(info.name); !ok {
+				c.robots.Set(info.name, info.robots)
+				c.log.Debug("Robots collection updated", zap.String("hostname", info.name))
+			}
+
+			c.Unlock()
+		}
+	}()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
@@ -88,5 +87,6 @@ func (c *Crawler) Start() {
 
 	cancel()
 	close(robotsChan)
+	processingQueue.Close()
 	c.log.Info("Done")
 }

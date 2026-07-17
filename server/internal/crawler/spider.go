@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -84,10 +85,10 @@ func (sp *Spider) Run() *SiteMetadata {
 
 	foundUrls := sp.findLinks(res, hostname)
 
-	sp.log.Debug("Finished Processing", zap.String("url", sp.job.url))
+	//sp.log.Debug("Finished Processing", zap.String("url", sp.job.url))
 
 	for _, url := range foundUrls {
-		sp.queue.Push(Job{url})
+		go sp.queue.Push(Job{url, sp.job.depth + 1})
 	}
 
 	return &SiteMetadata{
@@ -141,13 +142,25 @@ func (sp *Spider) findLinks(res *http.Response, hostname string) []string {
 }
 
 func getHttpClient() *http.Client {
-	transport := &http.Transport{}
+	transport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 90,
+		IdleConnTimeout:     80 * time.Second,
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second, 
+	}
+
 	return &http.Client{
 		Transport: transport,
 		Timeout:   30 * time.Second,
+
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
-				return errors.New("stopped after 1 redirects")
+				return errors.New("stopped after 5 redirects")
 			}
 			return nil
 		},
@@ -162,18 +175,26 @@ func (sp *Spider) shouldCrawl(rawURL string) bool {
 
 	host := strings.ToLower(u.Hostname())
 
-	// Block any host that starts with "login." — auth subdomains, not content
-	if strings.HasPrefix(host, "login.") || strings.HasPrefix(host, "auth.") || strings.HasPrefix(host, "accounts.") || strings.HasPrefix(host, "app.") {
-		return false
+	avoidedPhrases := []string{
+		"account",
+		"account",
+		"auth",
+		"login",
 	}
 
-	// Extension check — only on the path
+	for _, phrase := range avoidedPhrases {
+		if strings.Contains(host, phrase) {
+			return false
+		}
+	}
+
+	// Extension check
 	extPattern := regexp.MustCompile(`(?i)\.(jpg|jpeg|png|gif|css|js|pdf|zip)(\?|$)`)
 	if extPattern.MatchString(u.Path) {
 		return false
 	}
 
-	// Path-segment check — only on the path, not the host
+	// Path-segment check
 	pathPattern := regexp.MustCompile(`(?i)/(login|cart|admin)(/|$)`)
 	if pathPattern.MatchString(u.Path) {
 		return false

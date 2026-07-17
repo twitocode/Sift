@@ -34,3 +34,19 @@ func (sm *SafeMap[K, V]) Contains(key K) bool {
 	_, ok := sm.m[key]
 	return ok
 }
+
+func (sm *SafeMap[K, V]) Range(callback func(k K, v V)) {
+	sm.mu.RLock()
+	for k, v := range sm.m {
+		callback(k, v)
+	}
+	sm.mu.RUnlock()
+}
+
+
+func (sm *SafeMap[K, V]) Delete(k K) {
+	sm.mu.Lock()
+	delete(sm.m, k)
+	sm.mu.Unlock()
+}
+
