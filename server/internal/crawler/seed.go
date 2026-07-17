@@ -18,5 +18,5 @@ var seed = []string{"https://www.seo.com", "https://www.cnn.com", "https://www.w
 	// "https://www.loc.gov",
 	// "https://www.sciencemag.org",
 	// "https://www.nature.com",
-	// "https://www.python.org",
-	"https://www.docker.com"}
+	// "https://www.python.org"
+  }

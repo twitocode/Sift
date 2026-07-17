@@ -1,9 +1,9 @@
 package crawler
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/temoto/robotstxt"
+	"go.uber.org/zap"
 )
 
 var EXCLUDED_REGEX = regexp.MustCompile(`(?i)\.(jpg|jpeg|png|gif|css|js|pdf|zip)$|(login|cart|admin)`)
@@ -20,18 +21,27 @@ var EXCLUDED_REGEX = regexp.MustCompile(`(?i)\.(jpg|jpeg|png|gif|css|js|pdf|zip)
 var MAX_DEPTH = 3
 
 type Spider struct {
-	siteRobotsMap map[string]*robotstxt.Group
-	seed          string
-	graph         SiteGraph
-	linkChan      chan<- SiteAdjacency
+	seed       string
+	item       Item
+	queue      *ProcessingQueue
+	log        *zap.Logger
+	ctx        context.Context
+	robotsChan chan<- RobotsChanInfo
+
+	client *http.Client
+	robots *SafeMap[string, robotstxt.RobotsData]
 }
 
-func NewSpider(seed string, graph SiteGraph, linkChan chan<- SiteAdjacency) *Spider {
+func NewSpider(ctx context.Context, logger *zap.Logger, item Item, queue *ProcessingQueue, robots *SafeMap[string, robotstxt.RobotsData], robotsChan chan<- RobotsChanInfo) *Spider {
 	return &Spider{
-		siteRobotsMap: make(map[string]*robotstxt.Group),
-		seed:          seed,
-		graph:         graph,
-		linkChan:      linkChan,
+		seed:       item.url,
+		queue:      queue,
+		log:        logger,
+		ctx:        ctx,
+		robots:     robots,
+		client:     getHttpClient(),
+		item:       item,
+		robotsChan: robotsChan,
 	}
 }
 
@@ -39,62 +49,49 @@ func (sp *Spider) Run() {
 	client := getHttpClient()
 	u, err := url.Parse(sp.seed)
 	if err != nil {
-		log.Println("error with seed url given %s", err)
+		sp.log.Error("error with seed url given %s", zap.Error(err))
 		return
 	}
 
 	hostname := u.Hostname()
+	sp.processRobots()
 
-	var robots *robotstxt.RobotsData
-
-	if _, ok := sp.siteRobotsMap[hostname]; !ok {
-		res, err := client.Get(fmt.Sprintf("https://%s/robots.txt", hostname))
-
-		if err != nil {
-			// might not have robots.txt
-			log.Println("Error fetching", err.Error())
-
-			if res.StatusCode != 200 {
-				log.Printf("status code error: %d %s", res.StatusCode, res.Status)
-			}
-		} else {
-			defer res.Body.Close()
-
-			// has a robots.txt file
-			robots, err = robotstxt.FromResponse(res)
-
-			if err != nil {
-				log.Println("Error parsing robots.txt:", err.Error())
-				return
-			}
-
-			group := robots.FindGroup("*")
-			sp.siteRobotsMap[hostname] = group
-		}
-	}
-
-	if !shouldCrawl(sp.seed) {
+	if !sp.shouldCrawl(sp.seed) {
 		return
 	}
 
 	res, err := client.Get(sp.seed)
 	if err != nil {
 
-		log.Fatalf("fetching seed (%s) not working: %s, %s", sp.seed, err, shouldCrawl(sp.seed))
+		sp.log.Error("fetching seed (%s) not working",
+			zap.String("seed", sp.seed),
+			zap.Error(err),
+			zap.Bool("shouldCrawl", sp.shouldCrawl(sp.seed)))
+		return
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode < 200 || res.StatusCode > 299 {
 		if res.StatusCode == 429 {
-			log.Printf("Rate limited")
+			sp.log.Debug("Rate limited")
 		}
 		return
 	}
 
+	foundUrls := sp.findLinks(res, hostname)
+
+	sp.log.Debug("Finished Processing", zap.String("url", sp.seed))
+
+	for _, url := range foundUrls {
+		sp.queue.Push(Item{url})
+	}
+}
+
+func (sp *Spider) findLinks(res *http.Response, hostname string) []string {
 	doc, err := goquery.NewDocumentFromReader(res.Body)
 	if err != nil {
-		log.Printf("goquery error: %s", err)
-		return
+		sp.log.Error("goquery error", zap.Error(err))
+		return nil
 	}
 
 	var foundUrls []string = make([]string, 0)
@@ -102,7 +99,7 @@ func (sp *Spider) Run() {
 	doc.Find("a").Each(func(i int, s *goquery.Selection) {
 		href, exists := s.Attr("href")
 
-		if !shouldCrawl(href) {
+		if !sp.shouldCrawl(href) {
 			return
 		}
 		parsedHref, err := url.Parse(href)
@@ -120,14 +117,9 @@ func (sp *Spider) Run() {
 		}
 
 		allowed := true
-		group, ok := sp.siteRobotsMap[hostname]
+		group, ok := sp.robots.Get(hostname)
 		if ok {
-			allowed = group.Test(href)
-		}
-
-		if robots != nil {
-			group := robots.FindGroup("*")
-			allowed = group.Test(href)
+			allowed = group.FindGroup("*").Test(href)
 		}
 
 		if allowed && exists && (parsedHref.Scheme == "http" || parsedHref.Scheme == "https") {
@@ -137,11 +129,7 @@ func (sp *Spider) Run() {
 
 	slices.Sort(foundUrls)
 	foundUrls = slices.Compact(foundUrls)
-
-	sp.linkChan <- SiteAdjacency{
-		sp.seed,
-		foundUrls,
-	}
+	return foundUrls
 }
 
 func getHttpClient() *http.Client {
@@ -158,7 +146,7 @@ func getHttpClient() *http.Client {
 	}
 }
 
-func shouldCrawl(rawURL string) bool {
+func (sp *Spider) shouldCrawl(rawURL string) bool {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return false
@@ -167,7 +155,7 @@ func shouldCrawl(rawURL string) bool {
 	host := strings.ToLower(u.Hostname())
 
 	// Block any host that starts with "login." — auth subdomains, not content
-	if strings.HasPrefix(host, "login.") || strings.HasPrefix(host, "auth.") || strings.HasPrefix(host, "accounts.")  ||  strings.HasPrefix(host, "app.") {
+	if strings.HasPrefix(host, "login.") || strings.HasPrefix(host, "auth.") || strings.HasPrefix(host, "accounts.") || strings.HasPrefix(host, "app.") {
 		return false
 	}
 
@@ -178,10 +166,42 @@ func shouldCrawl(rawURL string) bool {
 	}
 
 	// Path-segment check — only on the path, not the host
-	pathPattern := regexp.MustCompile(`(?i)/(login|cart|admin|wp-admin)(/|$)`)
+	pathPattern := regexp.MustCompile(`(?i)/(login|cart|admin)(/|$)`)
 	if pathPattern.MatchString(u.Path) {
 		return false
 	}
 
 	return true
+}
+
+func (sp *Spider) processRobots() {
+	url, err := url.Parse(sp.item.url)
+	if err != nil {
+		sp.log.Error("Invalid url (robots.txt)", zap.String("url", sp.item.url))
+	}
+	hostname := url.Hostname()
+
+	if sp.robots.Contains(hostname) {
+		//sp.log.Debug("Robots already added", zap.String("hostname", hostname))
+		return
+	}
+
+	res, err := sp.client.Get(fmt.Sprintf("https://%s/robots.txt", hostname))
+
+	if err != nil { // might not have robots.txt
+		sp.log.Error("Error fetching robots.txt", zap.Error(err))
+	} else {
+		defer res.Body.Close()
+		robots, err := robotstxt.FromResponse(res)
+
+		if err != nil {
+			sp.log.Error("Error parsing robots.txt", zap.Error(err))
+			return
+		}
+
+		sp.robotsChan <- RobotsChanInfo{
+			name:   hostname,
+			robots: *robots,
+		}
+	}
 }

@@ -1,76 +1,81 @@
 package crawler
 
 import (
-	"fmt"
-	"slices"
+	"context"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 
+	"github.com/temoto/robotstxt"
 	"go.uber.org/zap"
 )
 
+type RobotsChanInfo struct {
+	name   string
+	robots robotstxt.RobotsData
+}
 type Crawler struct {
 	// TODO: make concurrent
-	queue    []string
+	queue    ProcessingQueue
 	maxDepth int
 	graph    SiteGraph
 	log      *zap.Logger
 
+	//domain as key
+	robots *SafeMap[string, robotstxt.RobotsData]
 	sync.RWMutex
 }
 
 func New(logger *zap.Logger) *Crawler {
 	return &Crawler{
 		maxDepth: 3,
-		queue:    seed,
+		queue:    ProcessingQueue{},
 		graph:    SiteGraph{},
 		log:      logger,
+    robots: NewSafeMap[string,robotstxt.RobotsData](),
 	}
 }
 
 func (c *Crawler) Start() {
-  c.log.Info("Starting logging")
-	var linkChan chan SiteAdjacency
-	linkChan = make(chan SiteAdjacency)
+	c.log.Info("Starting logging")
 
-	for passes := 0; passes < c.maxDepth; passes++ {
-		wg := sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	processingQueue := NewProcessingQueue(512, c.log)
 
-		for _, seed := range c.queue {
-			spider := NewSpider(seed, c.graph, linkChan)
-			wg.Add(1)
+	robotsChan := make(chan RobotsChanInfo, 512)
 
-			go func() {
-				spider.Run()
-				defer wg.Done()
-			}()
-		}
-
-		go func() {
-			c.receiveLinks(linkChan)
-		}()
-		wg.Wait()
-
-		fmt.Printf("finished pass %d\n", passes)
+	for _, url := range seed {
+		processingQueue.Push(Item{
+			url,
+		})
 	}
 
-	close(linkChan)
-	fmt.Println("Done")
-}
+	go processingQueue.Run(ctx, func(item Item) {
+		spider := NewSpider(ctx, c.log, item, processingQueue, c.robots, robotsChan)
+		spider.Run()
+	})
 
-func (c *Crawler) receiveLinks(linkChan <-chan SiteAdjacency) {
-	for sa := range linkChan {
+	for {
+		info, ok := <-robotsChan
+		if !ok {
+			close(robotsChan)
+		}
+
 		c.Lock()
-
-		if _, ok := c.graph[sa.site]; !ok {
-			c.graph[sa.site] = sa.links
-			//fmt.Printf("%s added\n", sa.site)
+		if _, ok := c.robots.Get(info.name); !ok {
+			c.robots.Set(info.name, info.robots)
+			c.log.Debug("Robots collection updated", zap.String("hostname", info.name))
 		}
 
-		for _, link := range sa.links {
-			if _, ok := c.graph[link]; !ok && !slices.Contains(c.queue, link) {
-				c.queue = append(c.queue, link)
-			}
-		}
 		c.Unlock()
 	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	<-sigCh //waits for a message from the operating system (blocking)
+
+	cancel()
+	close(robotsChan)
+	c.log.Info("Done")
 }
