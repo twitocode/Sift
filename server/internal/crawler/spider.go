@@ -25,21 +25,21 @@ type Spider struct {
 	ctx        context.Context
 	robotsChan chan<- RobotsChanInfo
 
-	client       *http.Client
-	robots       *SafeMap[string, robotstxt.RobotsData]
-	crawledSites *SafeMap[string, SiteMetadata]
+	client   *http.Client
+	robots   *SafeMap[string, robotstxt.RobotsData]
+	siteRepo *SiteRepository
 }
 
-func NewSpider(ctx context.Context, logger *zap.Logger, job Job, queue *ProcessingQueue, robots *SafeMap[string, robotstxt.RobotsData], robotsChan chan<- RobotsChanInfo, crawledSites *SafeMap[string, SiteMetadata]) *Spider {
+func NewSpider(ctx context.Context, logger *zap.Logger, job Job, queue *ProcessingQueue, robots *SafeMap[string, robotstxt.RobotsData], robotsChan chan<- RobotsChanInfo, siteRepo *SiteRepository) *Spider {
 	return &Spider{
-		queue:        queue,
-		log:          logger,
-		ctx:          ctx,
-		robots:       robots,
-		client:       getHttpClient(),
-		job:          job,
-		robotsChan:   robotsChan,
-		crawledSites: crawledSites,
+		queue:      queue,
+		log:        logger,
+		ctx:        ctx,
+		robots:     robots,
+		client:     getHttpClient(),
+		job:        job,
+		robotsChan: robotsChan,
+		siteRepo:   siteRepo,
 	}
 }
 
@@ -52,7 +52,11 @@ func (sp *Spider) Run() *SiteMetadata {
 		return nil
 	}
 
-	if sp.crawledSites.Contains(sp.job.url) {
+	exists, err := sp.siteRepo.Contains(context.Background(), sp.job.url)
+	if err != nil {
+		sp.log.Error("Sqlite error (spider)", zap.Error(err))
+	}
+	if exists {
 		return nil
 	}
 	hostname := u.Hostname()
@@ -92,7 +96,8 @@ func (sp *Spider) Run() *SiteMetadata {
 	}
 
 	return &SiteMetadata{
-		URL: sp.job.url,
+		URL:        sp.job.url,
+		StatusCode: res.StatusCode,
 	}
 }
 
@@ -151,7 +156,7 @@ func getHttpClient() *http.Client {
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
 		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 10 * time.Second, 
+		ResponseHeaderTimeout: 10 * time.Second,
 	}
 
 	return &http.Client{

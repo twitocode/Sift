@@ -3,3 +3,22 @@
 //   sqlc v1.30.0
 
 package db
+
+import (
+	"database/sql"
+)
+
+type Link struct {
+	FromUrl sql.NullString
+	ToUrl   sql.NullString
+}
+
+type Page struct {
+	Url         string
+	Title       sql.NullString
+	Description sql.NullString
+	Text        sql.NullString
+	StatusCode  sql.NullInt64
+	CrawledAt   sql.NullTime
+	ContentHash sql.NullString
+}

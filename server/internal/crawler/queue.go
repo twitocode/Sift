@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
-var MAX_DEPTH = 2
+var MAX_DEPTH = 5
 
 type Job struct {
 	url   string
@@ -26,7 +26,7 @@ type ProcessingQueue struct {
 	pending       chan Job
 	maxSubPoolCap int
 	processFunc   func(job Job)
-	crawledSites  *SafeMap[string, SiteMetadata]
+	siteRepo      *SiteRepository
 
 	shutdownMu sync.Mutex
 	closed     bool
@@ -35,14 +35,14 @@ type ProcessingQueue struct {
 	wg  sync.WaitGroup
 }
 
-func NewProcessingQueue(buffer int, crawledSites *SafeMap[string, SiteMetadata], processFunc func(job Job), logger *zap.Logger) *ProcessingQueue {
+func NewProcessingQueue(buffer int, siteRepo *SiteRepository, processFunc func(job Job), logger *zap.Logger) *ProcessingQueue {
 	return &ProcessingQueue{
 		filteredJobs:  NewSafeMap[string, domainEntry](),
 		pending:       make(chan Job, buffer),
 		log:           logger,
 		maxSubPoolCap: 4,
 		processFunc:   processFunc,
-		crawledSites:  crawledSites,
+		siteRepo:      siteRepo,
 	}
 }
 func (q *ProcessingQueue) Push(job Job) {
@@ -52,7 +52,12 @@ func (q *ProcessingQueue) Push(job Job) {
 		return
 	}
 
-	if q.crawledSites.Contains(job.url) {
+	exists, err := q.siteRepo.Contains(context.Background(), job.url)
+	if err != nil {
+		q.log.Error("Sqlite error (push)", zap.Error(err))
+	}
+
+	if exists {
 		q.shutdownMu.Unlock()
 		return
 	}
@@ -70,7 +75,7 @@ func (q *ProcessingQueue) Push(job Job) {
 			ch:   make(chan Job, q.maxSubPoolCap),
 			stop: make(chan struct{}),
 		}
-		q.log.Debug("Proceessing new url", zap.String("url", job.url))
+		q.log.Debug("Proceessing new domain", zap.String("domain", domain))
 		q.filteredJobs.Set(domain, entry)
 		q.wg.Add(1)
 		go q.consumeDomain(domain, entry)

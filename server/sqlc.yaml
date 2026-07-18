@@ -1,8 +1,8 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    queries: "db/query"
-    schema: "db/migrations"
+    queries: "db/postgres/query"
+    schema: "db/postgres/migrations"
     gen:
       go:
         package: "db"
@@ -17,3 +17,10 @@ sql:
             go_type:
               import: "github.com/pgvector/pgvector-go"
               type: "Vector"
+  - engine: "sqlite"
+    queries: "db/sqlite/query"
+    schema: "db/sqlite/migrations"
+    gen:
+      go:
+        package: "db"
+        out: "internal/db"

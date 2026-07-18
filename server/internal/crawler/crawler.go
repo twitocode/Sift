@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"os/signal"
 	"sync"
@@ -16,9 +17,6 @@ type RobotsChanInfo struct {
 	robots robotstxt.RobotsData
 }
 
-type SiteMetadata struct {
-	URL string
-}
 type Crawler struct {
 	// TODO: make concurrent
 	queue    ProcessingQueue
@@ -29,35 +27,37 @@ type Crawler struct {
 	robots *SafeMap[string, robotstxt.RobotsData]
 	//url as key
 	crawledSites *SafeMap[string, SiteMetadata]
+	siteRepo     *SiteRepository
 	sync.RWMutex
 }
 
-func New(logger *zap.Logger) *Crawler {
+func New(logger *zap.Logger, sqliteDb *sql.DB) *Crawler {
 	return &Crawler{
 		maxDepth:     3,
 		queue:        ProcessingQueue{},
 		log:          logger,
 		robots:       NewSafeMap[string, robotstxt.RobotsData](),
 		crawledSites: NewSafeMap[string, SiteMetadata](),
+		siteRepo:     NewSiteRepository(sqliteDb, logger),
 	}
 }
 
 func (c *Crawler) Start() {
 	c.log.Info("Starting logging")
-
+  
 	ctx, cancel := context.WithCancel(context.Background())
 	robotsChan := make(chan RobotsChanInfo, 512)
 	var processingQueue *ProcessingQueue
 
-	processingQueue = NewProcessingQueue(1024, c.crawledSites, func(job Job) {
-		spider := NewSpider(ctx, c.log, job, processingQueue, c.robots, robotsChan, c.crawledSites)
+	processingQueue = NewProcessingQueue(1024, c.siteRepo, func(job Job) {
+		spider := NewSpider(ctx, c.log, job, processingQueue, c.robots, robotsChan, c.siteRepo)
 		result := spider.Run()
 
 		if result == nil {
 			return
 		}
 
-		c.crawledSites.Set(result.URL, *result)
+		c.siteRepo.Add(ctx, *result)
 	}, c.log)
 
 	for _, url := range seed {
@@ -67,6 +67,7 @@ func (c *Crawler) Start() {
 		})
 	}
 
+  go c.siteRepo.RunTimer(ctx)
 	go processingQueue.Run(ctx)
 
 	go func() {

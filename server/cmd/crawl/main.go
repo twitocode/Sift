@@ -1,31 +1,27 @@
 package main
 
 import (
-	"context"
-	"fmt"
-	"net"
+	"database/sql"
 	"os"
-	"time"
 
 	"github.com/twitocode/sift/internal/app"
 	"github.com/twitocode/sift/internal/crawler"
+	"go.uber.org/zap"
+
+	_ "modernc.org/sqlite"
 )
 
 func main() {
-	logger := app.NewLogger(os.Getenv)
+	log := app.NewLogger(os.Getenv)
+	app.NewConfig(os.Getenv)
 
-	r := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			d := net.Dialer{Timeout: 5 * time.Second}
-			return d.Dial("udp", "8.8.8.8:53")
-		},
+	sqliteDb, err := sql.Open("sqlite", "../../db/sqlite/sift.db")
+
+	if err != nil {
+		log.Fatal("Sqlite connection error", zap.Error(err))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	ips, err := r.LookupHost(ctx, "www.google.com")
-	fmt.Println(ips, err)
+	log.Info("Connected to Sqlite")
 
-	crawler := crawler.New(logger)
+	crawler := crawler.New(log, sqliteDb)
 	crawler.Start()
 }
