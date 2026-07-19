@@ -26,6 +26,7 @@ func (sp *Spider) Walk() {
 		sp.sendChan <- PageMetadata{
       URL: job.url,
       Host: job.host,
+      Links: []string{job.url},
 		}
     
     sp.log.Debug("Finished Job", zap.String("url", job.url))

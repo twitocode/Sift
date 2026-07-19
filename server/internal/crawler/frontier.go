@@ -140,6 +140,8 @@ func (fs *FrontierStore) Run() {
 							url: link,
               host: hostname,
 						}
+
+            bQueue.Locked = true
 						addedToNone = false
 						fs.log.Debug("Found empty ready queue")
 						return false
@@ -149,7 +151,7 @@ func (fs *FrontierStore) Run() {
 				})
 
 				if addedToNone {
-					fs.log.Debug("Adding to buffer", zap.String("host", hostname), zap.String("url", link))
+					fs.log.Debug("Adding back to buffer", zap.String("host", hostname), zap.String("url", link))
 					bQueue.URLs = append(bQueue.URLs, hostname)
 				}
 
@@ -175,6 +177,7 @@ func (fs *FrontierStore) Run() {
 	}
 
 	close(pageReceiveChan) //might be a code smell
+  fs.log.Info("Finished Crawling", zap.Int("count", pagesCrawled))
 }
 
 func (fs *FrontierStore) AddUrl(rawUrl string, linkReceiveChan chan<- string) {
