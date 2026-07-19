@@ -1,7 +1,24 @@
 package crawler
 
 // var seed = []string{"https://www.seo.com", "https://www.cnn.com", "https://www.wikipedia.org"}
-var seed = []string{"https://www.openai.com", "https://www.google.com", "https://www.vox.com"}
+
+var seed = []string{
+	"https://en.wikipedia.org",
+	"https://www.reddit.com",
+	"https://news.ycombinator.com",
+	"https://www.imdb.com",
+	"https://www.goodreads.com",
+	"https://web.archive.org",
+	"https://github.com",
+	"https://www.amazon.com",
+	"https://www.ebay.com",
+	"https://www.pinterest.com",
+	"https://www.booking.com",
+	"https://www.tripadvisor.com",
+	"https://www.walmart.com",
+	"https://www.target.com",
+	"https://www.nytimes.com",
+}
 
 // "https://www.nytimes.com",
 // "https://www.github.com",
