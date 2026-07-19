@@ -35,18 +35,23 @@ func (sm *SafeMap[K, V]) Contains(key K) bool {
 	return ok
 }
 
-func (sm *SafeMap[K, V]) Range(callback func(k K, v V)) {
+func (sm *SafeMap[K, V]) Range(callback func(k K, v V) bool) {
 	sm.mu.RLock()
+	snapshot := make(map[K]V, len(sm.m))
 	for k, v := range sm.m {
-		callback(k, v)
+		snapshot[k] = v
 	}
 	sm.mu.RUnlock()
-}
 
+	for k, v := range snapshot {
+		if !callback(k, v) {
+			break
+		}
+	}
+}
 
 func (sm *SafeMap[K, V]) Delete(k K) {
 	sm.mu.Lock()
 	delete(sm.m, k)
 	sm.mu.Unlock()
 }
-

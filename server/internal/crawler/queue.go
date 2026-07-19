@@ -127,8 +127,9 @@ func (q *ProcessingQueue) Close() {
 	q.shutdownMu.Lock()
 	q.closed = true
 	close(q.pending)
-	q.filteredJobs.Range(func(k string, v domainEntry) {
+	q.filteredJobs.Range(func(k string, v domainEntry) bool {
 		close(v.stop)
+		return true
 	})
 	q.shutdownMu.Unlock()
 	q.wg.Wait()

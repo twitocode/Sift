@@ -2,6 +2,8 @@
 
 A simple, but complete search engine
 
+Goal: make a project on the larger side without AI writing any code
+
 ## Challenges
 
 ### Crawling

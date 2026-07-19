@@ -50,14 +50,14 @@ func (c *Crawler) Start() {
 	var processingQueue *ProcessingQueue
 
 	processingQueue = NewProcessingQueue(1024, c.siteRepo, func(job Job) {
-		spider := NewSpider(ctx, c.log, job, processingQueue, c.robots, robotsChan, c.siteRepo)
-		result := spider.Run()
+		// spider := NewSpider(ctx, c.log, job, processingQueue, c.robots, robotsChan, c.siteRepo)
+		// result := spider.Run()
 
-		if result == nil {
-			return
-		}
+		// if result == nil {
+		// 	return
+		// }
 
-		c.siteRepo.Add(ctx, *result)
+		// c.siteRepo.Add(ctx, *result)
 	}, c.log)
 
 	for _, url := range seed {
