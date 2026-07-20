@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 
 	"github.com/twitocode/sift/internal/app"
@@ -15,13 +16,13 @@ func main() {
 	log := app.NewLogger(os.Getenv)
 	app.NewConfig(os.Getenv)
 
-	sqliteDb, err := sql.Open("sqlite", "../../db/sqlite/sift.db")
+	_, err := sql.Open("sqlite", "../../db/sqlite/sift.db")
 
 	if err != nil {
 		log.Fatal("Sqlite connection error", zap.Error(err))
 	}
 	log.Info("Connected to Sqlite")
 
-	crawler := crawler.New(log, sqliteDb)
-	crawler.Start()
+	crawler.NewEngine(log).Start()
+	fmt.Scanln()
 }

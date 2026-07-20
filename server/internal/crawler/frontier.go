@@ -1,0 +1,227 @@
+package crawler
+
+import (
+	"context"
+	"errors"
+	"net/url"
+	"slices"
+	"time"
+
+	"go.uber.org/zap"
+)
+
+type PageMetadata struct {
+	URL         string
+	Host        string
+	Title       string
+	Description string
+	Text        string
+	Links       []string
+	StatusCode  int // some pages return 429 stuff like that so i can filter out later if needed
+	CrawledAt   time.Time
+	ContentHash string //TODO: duplication detection, hash text form page (different urls same text)
+}
+
+type FrontierStore struct {
+	bufferQueues *SafeMap[string, *BQueue]
+	readyQueue   chan SpiderPayload
+	dispatched   *SafeMap[string, struct{}]
+
+	dnsCache *DNSCache
+	crawled  *SafeMap[string, *PageMetadata]
+
+	workers int
+	log     *zap.Logger
+}
+
+func NewFrontierStore(log *zap.Logger, workerCount int, dnsCache *DNSCache) *FrontierStore {
+	return &FrontierStore{
+		bufferQueues: NewSafeMap[string, *BQueue](),
+		readyQueue:   make(chan SpiderPayload, workerCount),
+		dispatched:   NewSafeMap[string, struct{}](),
+		crawled:      NewSafeMap[string, *PageMetadata](),
+		dnsCache:     dnsCache,
+		workers:      workerCount,
+		log:          log,
+	}
+}
+
+func (fs *FrontierStore) printResults() {
+	urls := fs.crawled.Keys()
+	slices.Sort(urls)
+	SaveResultsToFile(urls)
+}
+
+func (fs *FrontierStore) AddUrl(ctx context.Context, rawUrl string, linkReceiveChan chan<- string) {
+	url, err := url.Parse(rawUrl)
+
+	if err != nil {
+		fs.log.Warn("Invalid url given", zap.String("url", rawUrl))
+		return
+	}
+
+	hostname := url.Hostname()
+
+	if !fs.bufferQueues.Contains(hostname) {
+		//fs.log.Debug("BQueue cache miss", zap.String("host", hostname))
+		queue := &BQueue{
+			Host:       hostname,
+			URLs:       []string{},
+			Locked:     false,
+			StaleUntil: time.Now(),
+		}
+
+		fs.bufferQueues.Set(hostname, queue)
+	}
+	select {
+	case <-ctx.Done():
+		return
+	case linkReceiveChan <- rawUrl:
+	default:
+	}
+}
+
+func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *SpiderPayload) {
+	bQueue, exists := fs.bufferQueues.Get(job.host)
+	if exists && bQueue.IsAvailable() {
+		select {
+		case <-ctx.Done():
+			return
+		case fs.readyQueue <- *job:
+			bQueue.Lock()
+			fs.dispatched.Set(job.url, struct{}{})
+		default:
+		}
+	}
+}
+
+func (fs *FrontierStore) HasLinkBeenCrawled(link string) bool {
+	//TODO: use bloom filters and hashing instead
+	return fs.crawled.Contains(link)
+}
+
+func (fs *FrontierStore) ProcessLink(ctx context.Context, link string) {
+	link, err := fs.SanitizeURL(link)
+	if err != nil {
+		fs.log.Warn("Website not allowed", zap.String("url", link))
+		return
+	}
+
+	hostname, err := GetHost(link)
+
+	if err != nil {
+		fs.log.Warn("Invalid url given (linkReceiveChan)", zap.String("url", link))
+		return
+	}
+
+	bQueue, exists := fs.bufferQueues.Get(hostname)
+
+	if !exists {
+		return
+	}
+
+	dispatchedAlready := fs.dispatched.Contains(link)
+	hostQueueAvailable := bQueue.IsAvailable()
+	readyQueueAvailable := len(fs.readyQueue) < fs.workers
+
+	if !dispatchedAlready && hostQueueAvailable && readyQueueAvailable {
+		payload := SpiderPayload{
+			url:           link,
+			host:          hostname,
+			dialerContext: fs.dnsCache.DialContext,
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case fs.readyQueue <- payload:
+			fs.dispatched.Set(link, struct{}{})
+			bQueue.Lock()
+		default:
+		}
+		return
+	} else {
+		//fs.log.Debug("Adding back to buffer", zap.String("host", hostname), zap.String("url", link))
+		bQueue.Enqueue(link)
+	}
+}
+
+func (fs *FrontierStore) ProcessPage(ctx context.Context, page *PageMetadata) error {
+	if !fs.IsLinkDispatched(page.URL) {
+		return errors.New("Link for some reason not available")
+	}
+
+	fs.crawled.Set(page.URL, page)
+	fs.dispatched.Delete(page.URL)
+
+	bQueue, exists := fs.bufferQueues.Get(page.Host)
+	if !exists {
+		fs.log.Fatal("Buffer queue should exist but doesn't", zap.String("host", page.Host))
+	}
+
+	bQueue.Timeout(4000)
+	allowedURLs := make([]string, 0)
+
+	for _, link := range page.Links {
+		if fs.HasLinkBeenCrawled(link) {
+			fs.log.Debug("Duplicate link crawled", zap.String("url", page.URL))
+			continue
+		}
+
+		allowedURLs = append(allowedURLs, link)
+	}
+
+	page.Links = allowedURLs
+	return nil
+}
+
+func (fs *FrontierStore) Shutdown() {
+	close(fs.readyQueue)
+}
+
+// used for timer
+func (fs *FrontierStore) FindAvailableJob() (*SpiderPayload, error) {
+	var job *SpiderPayload
+
+	fs.bufferQueues.Range(func(host string, queue *BQueue) bool {
+		queue.mu.Lock()
+		defer queue.mu.Unlock()
+
+		if queue.IsAvailable() {
+			url := queue.Dequeue()
+			job = &SpiderPayload{
+				url:           url,
+				host:          host,
+				dialerContext: fs.dnsCache.DialContext,
+			}
+
+			queue.Lock()
+			return false
+		}
+
+		return true
+	})
+
+	return job, nil
+}
+
+func (fs *FrontierStore) HandleSpiderFail(host string) {
+	bQueue, exists := fs.bufferQueues.Get(host)
+	if exists {
+		bQueue.Timeout(400)
+	}
+}
+
+func (fs *FrontierStore) IsLinkAvailable(link string) bool {
+	//bloom filter and stuff
+	return !fs.HasLinkBeenCrawled(link) && !fs.dispatched.Contains(link)
+}
+
+func (fs *FrontierStore) IsLinkDispatched(link string) bool {
+	//bloom filter and stuff
+	return !fs.HasLinkBeenCrawled(link) && fs.dispatched.Contains(link)
+}
+
+func (fs *FrontierStore) SanitizeURL(link string) (string, error) {
+	return link, nil
+}

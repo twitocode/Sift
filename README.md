@@ -2,6 +2,8 @@
 
 A simple, but complete search engine
 
+Goal: make a project on the larger side without AI writing any code
+
 ## Challenges
 
 ### Crawling
@@ -13,3 +15,6 @@ did not want to get rate limited too fast, made a system where there is a pendin
 memory usage was exploding when crawling
 
 switching to a domain filter system instead.
+
+
+frontier system god file
