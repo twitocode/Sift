@@ -1,136 +1,75 @@
 package crawler
 
 import (
-	"context"
+	"errors"
+	"slices"
 	"sync"
 	"time"
-
-	"go.uber.org/zap"
 )
 
-var MAX_DEPTH = 5
+type BQueue struct {
+	Host       string
+	URLs       []string
+	Locked     bool
+	StaleUntil time.Time
 
-type Job struct {
-	url   string
-	depth int
+	mu sync.Mutex
 }
 
-type domainEntry struct {
-	ch   chan Job
-	stop chan struct{}
+func (b *BQueue) IsAvailable() bool {
+	return !b.Locked && time.Now().After(b.StaleUntil)
 }
 
-type ProcessingQueue struct {
-	//domain as key
-	filteredJobs  *SafeMap[string, domainEntry]
-	pending       chan Job
-	maxSubPoolCap int
-	processFunc   func(job Job)
-	siteRepo      *SiteRepository
+func (b *BQueue) Dequeue() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	shutdownMu sync.Mutex
-	closed     bool
-
-	log *zap.Logger
-	wg  sync.WaitGroup
-}
-
-func NewProcessingQueue(buffer int, siteRepo *SiteRepository, processFunc func(job Job), logger *zap.Logger) *ProcessingQueue {
-	return &ProcessingQueue{
-		filteredJobs:  NewSafeMap[string, domainEntry](),
-		pending:       make(chan Job, buffer),
-		log:           logger,
-		maxSubPoolCap: 4,
-		processFunc:   processFunc,
-		siteRepo:      siteRepo,
+	if len(b.URLs) == 0 {
+		return ""
 	}
+
+	url := b.URLs[0]
+	b.URLs = b.URLs[1:]
+	return url
 }
-func (q *ProcessingQueue) Push(job Job) {
-	q.shutdownMu.Lock()
-	if q.closed {
-		q.shutdownMu.Unlock()
+
+func (b *BQueue) Enqueue(newUrl string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if slices.Contains(b.URLs, newUrl) {
 		return
 	}
 
-	exists, err := q.siteRepo.Contains(context.Background(), job.url)
+	url, err := ResolveUrl(newUrl, b.Host)
 	if err != nil {
-		q.log.Error("Sqlite error (push)", zap.Error(err))
-	}
-
-	if exists {
-		q.shutdownMu.Unlock()
 		return
 	}
 
-	domain, err := GetDomain(job.url)
-	if err != nil {
-		q.log.Warn("Invalid domain name", zap.String("url", job.url))
-		q.shutdownMu.Unlock()
-		return
-	}
-
-	entry, ok := q.filteredJobs.Get(domain)
-	if !ok {
-		entry = domainEntry{
-			ch:   make(chan Job, q.maxSubPoolCap),
-			stop: make(chan struct{}),
-		}
-		q.log.Debug("Proceessing new domain", zap.String("domain", domain))
-		q.filteredJobs.Set(domain, entry)
-		q.wg.Add(1)
-		go q.consumeDomain(domain, entry)
-	}
-	q.shutdownMu.Unlock()
-
-	select {
-	case entry.ch <- job:
-	case <-entry.stop:
-	}
+	b.URLs = append(b.URLs, url)
+	return
 }
 
-func (q *ProcessingQueue) consumeDomain(domain string, entry domainEntry) {
-	defer q.wg.Done()
-	idleTimeout := 20 * time.Second
-	timer := time.NewTimer(idleTimeout)
-	defer timer.Stop()
+func (b *BQueue) Timeout(milliseconds int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.StaleUntil = time.Now().Add(time.Millisecond * time.Duration(milliseconds))
+}
 
-	for {
-		select {
-		case job := <-entry.ch:
-			timer.Reset(idleTimeout)
-			if job.depth > MAX_DEPTH {
-				continue
-			}
-			//time.Sleep(2 * time.Second)
-			q.processFunc(job)
+func (b *BQueue) Lock() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-		case <-timer.C:
-			q.shutdownMu.Lock()
-			if len(entry.ch) == 0 {
-				q.filteredJobs.Delete(domain)
-				close(entry.stop) // unblocks any Push currently racing to send here
-			}
-			q.shutdownMu.Unlock()
-			return
+	b.Locked = true
+}
 
-		case <-entry.stop:
-			return
-		}
+func (b *BQueue) TryUnlock() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if !time.Now().After(b.StaleUntil) {
+		return errors.New("Buffer queue not available yet")
 	}
-}
-
-func (q *ProcessingQueue) Run(ctx context.Context) {
-	<-ctx.Done()
-}
-
-func (q *ProcessingQueue) Close() {
-	q.shutdownMu.Lock()
-	q.closed = true
-	close(q.pending)
-	q.filteredJobs.Range(func(k string, v domainEntry) bool {
-		close(v.stop)
-		return true
-	})
-	q.shutdownMu.Unlock()
-	q.wg.Wait()
+	b.Locked = true
+	return nil
 }

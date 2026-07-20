@@ -1,0 +1,132 @@
+package crawler
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"go.uber.org/zap"
+)
+
+type Engine struct {
+	pageReceiveChan chan *PageMetadata
+	linkReceiveChan chan string
+	spiderFailChan  chan string
+
+	maxPagesCrawled int
+	pagesCrawled    int
+	workers         int
+
+	dnsCache *DNSCache
+	log      *zap.Logger
+	workerWg sync.WaitGroup
+	frontier *FrontierStore
+}
+
+func NewEngine(log *zap.Logger) *Engine {
+	const workers = 50
+
+	dnsCache := NewDNSCache(log)
+
+	return &Engine{
+		pageReceiveChan: make(chan *PageMetadata, 128),
+		linkReceiveChan: make(chan string, 1024),
+		spiderFailChan:  make(chan string, workers),
+		maxPagesCrawled: 1000,
+		pagesCrawled:    0,
+		workers:         workers,
+		frontier:        NewFrontierStore(log, workers, dnsCache),
+		dnsCache:        dnsCache,
+		log:             log,
+	}
+}
+
+func (e *Engine) Start() {
+	ctx, cancel := context.WithCancel(context.Background())
+	startTime := time.Now()
+
+	e.workerWg.Add(e.workers)
+
+	go e.Seed(ctx)
+	go e.startWorkers(ctx, e.workers)
+	go e.loop(ctx, cancel)
+
+	e.workerWg.Wait()
+	e.log.Info("Finished Crawling", zap.Int("count", e.pagesCrawled), zap.Duration("elapsed", time.Since(startTime)))
+	e.frontier.printResults()
+}
+
+func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {
+	ticker := time.NewTicker(time.Millisecond * 500)
+	defer ticker.Stop()
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				potentialJob, err := e.frontier.FindAvailableJob()
+				if err != nil {
+					continue
+				}
+
+				e.frontier.TryDispatchJob(ctx, potentialJob)
+
+			case page := <-e.pageReceiveChan:
+				if e.pagesCrawled >= e.maxPagesCrawled {
+					e.shutdown(cancel)
+					return
+				}
+
+				e.pagesCrawled++
+				e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.String("url", page.URL))
+
+				e.frontier.ProcessPage(ctx, page)
+				for _, link := range page.Links {
+					go e.frontier.AddUrl(ctx, link, e.linkReceiveChan)
+				}
+			case link := <-e.linkReceiveChan:
+				e.frontier.ProcessLink(ctx, link)
+			case host := <-e.spiderFailChan:
+				e.frontier.HandleSpiderFail(host)
+			}
+		}
+	}()
+}
+
+func (e *Engine) Seed(ctx context.Context) {
+	for _, link := range seed {
+		go e.frontier.AddUrl(ctx, link, e.linkReceiveChan)
+	}
+}
+
+func (e *Engine) startWorkers(ctx context.Context, workerCount int) {
+	go func() {
+		for w := 1; w <= workerCount; w++ {
+			spider := NewSpider(
+				w,
+				e.log,
+				e.frontier.readyQueue,
+				e.pageReceiveChan,
+				e.spiderFailChan,
+				e.dnsCache.DialContext,
+			)
+
+			go func() {
+				defer e.workerWg.Done()
+				spider.Walk(ctx)
+			}()
+		}
+	}()
+}
+
+func (e *Engine) shutdown(cancel context.CancelFunc) {
+	cancel()
+	e.frontier.Shutdown()
+
+	//might not need to close
+	//close(e.pageReceiveChan) //might be a code smell
+	//close(e.linkReceiveChan)
+}

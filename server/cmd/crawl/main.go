@@ -23,8 +23,6 @@ func main() {
 	}
 	log.Info("Connected to Sqlite")
 
-	crawler.NewFrontierStore(log).Run()
+	crawler.NewEngine(log).Start()
 	fmt.Scanln()
-	//crawler := crawler.New(log, sqliteDb)
-	//crawler.Start()
 }

@@ -15,3 +15,6 @@ did not want to get rate limited too fast, made a system where there is a pendin
 memory usage was exploding when crawling
 
 switching to a domain filter system instead.
+
+
+frontier system god file
