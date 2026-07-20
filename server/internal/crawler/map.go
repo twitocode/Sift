@@ -1,6 +1,10 @@
 package crawler
 
-import "sync"
+import (
+	"maps"
+	"slices"
+	"sync"
+)
 
 type SafeMap[K comparable, V any] struct {
 	m  map[K]V
@@ -54,4 +58,20 @@ func (sm *SafeMap[K, V]) Delete(k K) {
 	sm.mu.Lock()
 	delete(sm.m, k)
 	sm.mu.Unlock()
+}
+
+func (sm *SafeMap[K, V]) Keys() []K {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	keys := slices.Collect(maps.Keys(sm.m))
+	return keys
+}
+
+func (sm *SafeMap[K, V]) Values() []V {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	values := slices.Collect(maps.Values(sm.m))
+	return values
 }

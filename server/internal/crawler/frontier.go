@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"slices"
 	"sync"
 	"time"
 
@@ -67,14 +68,16 @@ func NewFrontierStore(log *zap.Logger) *FrontierStore {
 
 func (fs *FrontierStore) Run() {
 	const workers = 10
-	var wg sync.WaitGroup
+	const MAX_PAGES_CRAWLED = 300
+
+	var workerWg sync.WaitGroup
 
 	startTime := time.Now()
 	pagesCrawled := 0
 	pageReceiveChan := make(chan *PageMetadata, 128)
 	linkReceiveChan := make(chan string, 1024)
+	ctx, cancel := context.WithCancel(context.Background())
 
-	wg.Add(1)
 	fs.log.Info("Seeding Frontier")
 
 	go func() {
@@ -83,13 +86,18 @@ func (fs *FrontierStore) Run() {
 		}
 	}()
 
+	workerWg.Add(workers)
+
 	go func() {
 		for w := 1; w <= workers; w++ {
 			jobs := make(chan SpiderPayload, 1)
 			fs.readyQueues.Set(w, jobs)
 			spider := NewSpider(w, fs.log, jobs, pageReceiveChan, fs.dialContext)
 
-			go spider.Walk()
+			go func() {
+				defer workerWg.Done()
+				spider.Walk(ctx)
+			}()
 		}
 	}()
 
@@ -105,8 +113,8 @@ func (fs *FrontierStore) Run() {
 				fs.log.Info("Page metadata received", zap.String("url", meta.URL))
 
 				fs.crawled.Set(meta.URL, meta)
-				if pagesCrawled >= 10 {
-					wg.Done()
+				if pagesCrawled >= MAX_PAGES_CRAWLED {
+					cancel()
 					return
 				}
 
@@ -184,20 +192,27 @@ func (fs *FrontierStore) Run() {
 		}
 	}()
 
-	wg.Wait()
+	workerWg.Wait()
 
 	for w := 1; w <= workers; w++ {
 		c, _ := fs.readyQueues.Get(w)
 		close(c)
 	}
 
-	close(pageReceiveChan) //might be a code smell
+	go func() {
+		workerWg.Wait()
+
+		close(pageReceiveChan) //might be a code smell
+		close(linkReceiveChan)
+	}()
+
 	fs.log.Info("Finished Crawling", zap.Int("count", pagesCrawled), zap.Duration("elapsed", time.Since(startTime)))
 
-	fs.crawled.Range(func(k string, v *PageMetadata) bool {
-		fmt.Printf("%s\n", k)
-		return true
-	})
+	urls := fs.crawled.Keys()
+	slices.Sort(urls)
+	for _, url := range urls {
+		fmt.Printf("%s\n", url)
+	}
 }
 
 func (fs *FrontierStore) AddUrl(rawUrl string, linkReceiveChan chan<- string) {
