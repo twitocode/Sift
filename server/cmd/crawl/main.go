@@ -13,6 +13,7 @@ import (
 )
 
 func main() {
+
 	log := app.NewLogger(os.Getenv)
 	app.NewConfig(os.Getenv)
 

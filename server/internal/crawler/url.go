@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/zeebo/xxh3"
 	"golang.org/x/net/publicsuffix"
 )
 
@@ -16,10 +15,6 @@ func (u URL) normalizeString() URL {
 	s = strings.Split(s, "?")[0]
 	s = strings.Split(s, "#")[0]
 	return URL(s)
-}
-
-func (u URL) fingerprintLink() uint64 {
-	return xxh3.HashString(string(u))
 }
 
 func (u URL) GetDomain() (string, error) {

@@ -21,6 +21,7 @@ type Engine struct {
 	dnsCache *DNSCache
 	log      *zap.Logger
 	workerWg sync.WaitGroup
+  pageRepo *PageRepository
 	frontier *FrontierStore
 }
 
@@ -28,15 +29,16 @@ func NewEngine(log *zap.Logger) *Engine {
 	const workers = 50
 
 	dnsCache := NewDNSCache(log)
+  maxPagesCrawled := 1000
 
 	return &Engine{
 		pageReceiveChan: make(chan *PageMetadata, 128),
 		linkReceiveChan: make(chan URL, 1024),
 		spiderFailChan:  make(chan URL, workers),
-		maxPagesCrawled: 1000,
+		maxPagesCrawled: maxPagesCrawled,
 		pagesCrawled:    0,
 		workers:         workers,
-		frontier:        NewFrontierStore(log, workers, dnsCache),
+		frontier:        NewFrontierStore(log, dnsCache, workers, maxPagesCrawled),
 		dnsCache:        dnsCache,
 		log:             log,
 	}
@@ -54,7 +56,6 @@ func (e *Engine) Start() {
 
 	e.workerWg.Wait()
 	e.log.Info("Finished Crawling", zap.Int("count", e.pagesCrawled), zap.Duration("elapsed", time.Since(startTime)))
-	e.frontier.printResults()
 }
 
 func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {

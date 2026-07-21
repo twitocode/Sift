@@ -3,7 +3,6 @@ package crawler
 import (
 	"context"
 	"errors"
-	"slices"
 	"time"
 
 	"go.uber.org/zap"
@@ -25,30 +24,24 @@ type FrontierStore struct {
 	bufferQueues *SafeMap[URL, *BQueue]
 	readyQueue   chan SpiderPayload
 	dispatched   *SafeMap[URL, struct{}]
+	bloomFilter  *BloomFilter
 
 	dnsCache *DNSCache
-	crawled  *SafeMap[URL, *PageMetadata]
 
 	workers int
 	log     *zap.Logger
 }
 
-func NewFrontierStore(log *zap.Logger, workerCount int, dnsCache *DNSCache) *FrontierStore {
+func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, workerCount, maxPagesCrawled int) *FrontierStore {
 	return &FrontierStore{
 		bufferQueues: NewSafeMap[URL, *BQueue](),
 		readyQueue:   make(chan SpiderPayload, workerCount),
 		dispatched:   NewSafeMap[URL, struct{}](),
-		crawled:      NewSafeMap[URL, *PageMetadata](),
+		bloomFilter:  NewBloomFilter(float64(maxPagesCrawled), 0.1),
 		dnsCache:     dnsCache,
 		workers:      workerCount,
 		log:          log,
 	}
-}
-
-func (fs *FrontierStore) printResults() {
-	urls := fs.crawled.Keys()
-	slices.Sort(urls)
-	SaveResultsToFile(urls)
 }
 
 func (fs *FrontierStore) AddUrl(ctx context.Context, rawUrl URL, linkReceiveChan chan<- URL) {
@@ -90,8 +83,7 @@ func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *SpiderPayload)
 }
 
 func (fs *FrontierStore) HasLinkBeenCrawled(link URL) bool {
-	//TODO: use bloom filters and hashing instead
-	return fs.crawled.Contains(link)
+	return fs.bloomFilter.ProbablyContains(link)
 }
 
 func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
@@ -142,7 +134,7 @@ func (fs *FrontierStore) ProcessPage(ctx context.Context, page *PageMetadata) er
 		return errors.New("Link for some reason not available")
 	}
 
-	fs.crawled.Set(page.URL, page)
+	fs.bloomFilter.Insert(page.URL)
 	fs.dispatched.Delete(page.URL)
 
 	bQueue, exists := fs.bufferQueues.Get(page.Host)
@@ -214,5 +206,9 @@ func (fs *FrontierStore) IsLinkDispatched(link URL) bool {
 }
 
 func (fs *FrontierStore) SanitizeURL(link URL) (URL, error) {
+	if fs.bloomFilter.ProbablyContains(link) {
+		return "", errors.New("Link already crawled")
+	}
+
 	return link, nil
 }

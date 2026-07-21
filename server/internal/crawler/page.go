@@ -10,41 +10,27 @@ import (
 	"go.uber.org/zap"
 )
 
-type SiteMetadata struct {
-	URL         URL
-	Title       string
-	Description string
-	Text        string
-	Links       []URL
-	StatusCode  int // some pages return 429 stuff like that so i can filter out later if needed
-	CrawledAt   time.Time
-	ContentHash string //TODO: duplication detection, hash text form page (different urls same text)
-}
-
-var bufferSize = 50
-
-type SiteRepository struct {
+type PageRepository struct {
 	sqliteDb   *sql.DB
 	queries    *db.Queries
-	bufferChan chan *SiteMetadata
-	buffer     []*SiteMetadata
+	bufferChan chan *PageMetadata
+	buffer     []*PageMetadata
 	log        *zap.Logger
 
 	mu sync.Mutex
 }
 
-func NewSiteRepository(sqliteDb *sql.DB, log *zap.Logger) *SiteRepository {
-
-	return &SiteRepository{
+func NewPageRepository(sqliteDb *sql.DB, log *zap.Logger) *PageRepository {
+	return &PageRepository{
 		queries:    db.New(sqliteDb),
-		bufferChan: make(chan *SiteMetadata),
+		bufferChan: make(chan *PageMetadata),
 		sqliteDb:   sqliteDb,
-		buffer:     make([]*SiteMetadata, 0, 200),
+		buffer:     make([]*PageMetadata, 0, 200),
 		log:        log,
 	}
 }
 
-func (sr *SiteRepository) RunTimer(ctx context.Context) {
+func (sr *PageRepository) RunTimer(ctx context.Context) {
 	ticker := time.NewTicker(time.Second * 4)
 	defer ticker.Stop()
 
@@ -73,7 +59,7 @@ func (sr *SiteRepository) RunTimer(ctx context.Context) {
 	<-ctx.Done()
 }
 
-func (sr *SiteRepository) flush(ctx context.Context) {
+func (sr *PageRepository) flush(ctx context.Context) {
 	for _, sm := range sr.buffer {
 		err := sr.queries.SetPageInfo(ctx, db.SetPageInfoParams{
 			Url: sm.URL.String(),
@@ -102,13 +88,13 @@ func (sr *SiteRepository) flush(ctx context.Context) {
 }
 
 // doing a direct insert for now
-func (sr *SiteRepository) Add(ctx context.Context, sm SiteMetadata) error {
+func (sr *PageRepository) Add(ctx context.Context, sm PageMetadata) error {
 	sr.bufferChan <- &sm
 
 	return nil
 }
 
-func (sr *SiteRepository) Contains(ctx context.Context, url URL) (bool, error) {
+func (sr *PageRepository) Contains(ctx context.Context, url URL) (bool, error) {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
@@ -116,7 +102,7 @@ func (sr *SiteRepository) Contains(ctx context.Context, url URL) (bool, error) {
 
 	return exists != 0, err
 }
-func (sr *SiteRepository) Get(ctx context.Context, url URL) (*SiteMetadata, error) {
+func (sr *PageRepository) Get(ctx context.Context, url URL) (*PageMetadata, error) {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
@@ -126,7 +112,7 @@ func (sr *SiteRepository) Get(ctx context.Context, url URL) (*SiteMetadata, erro
 		return nil, err
 	}
 
-	siteInfo := &SiteMetadata{
+	siteInfo := &PageMetadata{
 		ContentHash: page.ContentHash.String,
 		Title:       page.Title.String,
 		Text:        page.Text.String,

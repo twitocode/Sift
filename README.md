@@ -18,3 +18,10 @@ switching to a domain filter system instead.
 
 
 frontier system god file
+
+concurrency errors
+
+adding a bloom filter to check for deduplication
+- using bitwise operations for the first time
+
+So the original system with Bloom filters used to use an array of bytes which with a size of how many elements I expect to be crawled and where each byte represented the each indices in the Bloom filter. The problem with the system is that it uses way too many bytes. So, what I did instead was I used what's called a bit set, and this bit set has an array of bytes, but we don't treat each indicate in the array as a number. What we do instead is we treat each bit inside each byte as a number. So bits 0 to 7 would represent one byte number zero, and then bits eight to fifteen would represent byte number one, and then this can scale up to whatever number I need. 
