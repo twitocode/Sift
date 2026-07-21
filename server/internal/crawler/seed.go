@@ -2,7 +2,7 @@ package crawler
 
 // var seed = []string{"https://www.seo.com", "https://www.cnn.com", "https://www.wikipedia.org"}
 
-var seed = []string{
+var seed = []URL{
 	"https://en.wikipedia.org",
 	"https://www.reddit.com",
 	"https://news.ycombinator.com",

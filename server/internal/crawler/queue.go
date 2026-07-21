@@ -8,8 +8,8 @@ import (
 )
 
 type BQueue struct {
-	Host       string
-	URLs       []string
+	Host       URL
+	URLs       []URL
 	Locked     bool
 	StaleUntil time.Time
 
@@ -20,7 +20,7 @@ func (b *BQueue) IsAvailable() bool {
 	return !b.Locked && time.Now().After(b.StaleUntil)
 }
 
-func (b *BQueue) Dequeue() string {
+func (b *BQueue) Dequeue() URL {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -33,21 +33,16 @@ func (b *BQueue) Dequeue() string {
 	return url
 }
 
-func (b *BQueue) Enqueue(newUrl string) {
+func (b *BQueue) Enqueue(newUrl URL) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if slices.Contains(b.URLs, newUrl) {
+	normalized := newUrl.normalizeString()
+	if slices.Contains(b.URLs, normalized) {
 		return
 	}
 
-	url, err := ResolveUrl(newUrl, b.Host)
-	if err != nil {
-		return
-	}
-
-	b.URLs = append(b.URLs, url)
-	return
+	b.URLs = append(b.URLs, normalized)
 }
 
 func (b *BQueue) Timeout(milliseconds int) {

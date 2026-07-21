@@ -11,11 +11,11 @@ import (
 )
 
 type SiteMetadata struct {
-	URL         string
+	URL         URL
 	Title       string
 	Description string
 	Text        string
-	Links       []string
+	Links       []URL
 	StatusCode  int // some pages return 429 stuff like that so i can filter out later if needed
 	CrawledAt   time.Time
 	ContentHash string //TODO: duplication detection, hash text form page (different urls same text)
@@ -76,7 +76,7 @@ func (sr *SiteRepository) RunTimer(ctx context.Context) {
 func (sr *SiteRepository) flush(ctx context.Context) {
 	for _, sm := range sr.buffer {
 		err := sr.queries.SetPageInfo(ctx, db.SetPageInfoParams{
-			Url: sm.URL,
+			Url: sm.URL.String(),
 			Title: sql.NullString{
 				String: sm.Title,
 			},
@@ -108,19 +108,19 @@ func (sr *SiteRepository) Add(ctx context.Context, sm SiteMetadata) error {
 	return nil
 }
 
-func (sr *SiteRepository) Contains(ctx context.Context, url string) (bool, error) {
+func (sr *SiteRepository) Contains(ctx context.Context, url URL) (bool, error) {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
-	exists, err := sr.queries.FindPage(ctx, url)
+	exists, err := sr.queries.FindPage(ctx, url.String())
 
 	return exists != 0, err
 }
-func (sr *SiteRepository) Get(ctx context.Context, url string) (*SiteMetadata, error) {
+func (sr *SiteRepository) Get(ctx context.Context, url URL) (*SiteMetadata, error) {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
-	page, err := sr.queries.GetPageInfo(ctx, url)
+	page, err := sr.queries.GetPageInfo(ctx, url.String())
 
 	if err != nil {
 		return nil, err
@@ -131,7 +131,7 @@ func (sr *SiteRepository) Get(ctx context.Context, url string) (*SiteMetadata, e
 		Title:       page.Title.String,
 		Text:        page.Text.String,
 		Description: page.Description.String,
-		URL:         page.Url,
+		URL:         URL(page.Url),
 		CrawledAt:   page.CrawledAt.Time,
 		StatusCode:  int(page.StatusCode.Int64),
 	}

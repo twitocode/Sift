@@ -11,8 +11,8 @@ import (
 )
 
 type SpiderPayload struct {
-	url           string
-	host          string
+	url           URL
+	host          URL
 	dialerContext DialerContext
 }
 
@@ -20,7 +20,7 @@ type Spider struct {
 	id           int
 	jobs         <-chan SpiderPayload
 	sendChan     chan<- *PageMetadata
-	httpFailChan chan<- string
+	httpFailChan chan<- URL
 	log          *zap.Logger
 	client       *http.Client
 }
@@ -31,7 +31,7 @@ var allowedContentTypes = []string{
 	"application/pdf",
 }
 
-func NewSpider(id int, log *zap.Logger, jobs <-chan SpiderPayload, sendChan chan<- *PageMetadata, httpFailChan chan<- string, dialerContext DialerContext) *Spider {
+func NewSpider(id int, log *zap.Logger, jobs <-chan SpiderPayload, sendChan chan<- *PageMetadata, httpFailChan chan<- URL, dialerContext DialerContext) *Spider {
 	return &Spider{
 		id,
 		jobs,
@@ -50,10 +50,10 @@ func (sp *Spider) Walk(ctx context.Context) {
 		case job := <-sp.jobs:
 			//sp.log.Debug("Job Accquired", zap.String("url", job.url))
 
-			req, _ := http.NewRequest("GET", job.url, nil)
+			req, _ := http.NewRequest("GET", job.url.String(), nil)
 			res, err := sp.client.Do(req)
 			if err != nil {
-				sp.log.Warn("Could not request site", zap.String("url", job.url))
+				sp.log.Warn("Could not request site", zap.String("url", job.url.String()))
 				sp.httpFailChan <- job.host
 				continue
 			}
@@ -62,11 +62,11 @@ func (sp *Spider) Walk(ctx context.Context) {
 			contentType := res.Header.Get("Content-Type")
 
 			if !isValidContentType(contentType) {
-				sp.log.Warn("Invalid content", zap.String("url", job.url), zap.String("type", contentType))
+				sp.log.Warn("Invalid content", zap.String("url", job.url.String()), zap.String("type", contentType))
 				return
 			}
 
-			foundUrls := make([]string, 0)
+			foundUrls := make([]URL, 0)
 			if !isPDF(contentType) {
 				foundUrls = sp.findLinks(res, job.url)
 			} else {
@@ -87,14 +87,14 @@ func (sp *Spider) Walk(ctx context.Context) {
 	}
 }
 
-func (sp *Spider) findLinks(res *http.Response, pageURL string) []string {
+func (sp *Spider) findLinks(res *http.Response, pageURL URL) []URL {
 	doc, err := goquery.NewDocumentFromReader(res.Body)
 	if err != nil {
-		sp.log.Error("Goquery error", zap.Error(err), zap.String("url", pageURL))
-		return make([]string, 0)
+		sp.log.Error("Goquery error", zap.Error(err), zap.String("url", pageURL.String()))
+		return make([]URL, 0)
 	}
 
-	var foundUrls []string = make([]string, 0)
+	var foundUrls []URL = make([]URL, 0)
 
 	doc.Find("a").Each(func(i int, s *goquery.Selection) {
 		href, exists := s.Attr("href")
@@ -102,12 +102,12 @@ func (sp *Spider) findLinks(res *http.Response, pageURL string) []string {
 			return
 		}
 
-		url, err := ResolveUrl(href, pageURL)
+		resolved, err := URL(href).ResolveUrl(pageURL)
 		if err != nil {
 			return
 		}
 
-		foundUrls = append(foundUrls, url)
+		foundUrls = append(foundUrls, resolved)
 	})
 
 	slices.Sort(foundUrls)

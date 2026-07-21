@@ -11,8 +11,8 @@ import (
 
 type Engine struct {
 	pageReceiveChan chan *PageMetadata
-	linkReceiveChan chan string
-	spiderFailChan  chan string
+	linkReceiveChan chan URL
+	spiderFailChan  chan URL
 
 	maxPagesCrawled int
 	pagesCrawled    int
@@ -31,8 +31,8 @@ func NewEngine(log *zap.Logger) *Engine {
 
 	return &Engine{
 		pageReceiveChan: make(chan *PageMetadata, 128),
-		linkReceiveChan: make(chan string, 1024),
-		spiderFailChan:  make(chan string, workers),
+		linkReceiveChan: make(chan URL, 1024),
+		spiderFailChan:  make(chan URL, workers),
 		maxPagesCrawled: 1000,
 		pagesCrawled:    0,
 		workers:         workers,
@@ -81,7 +81,7 @@ func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {
 				}
 
 				e.pagesCrawled++
-				e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.String("url", page.URL))
+				e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.String("url", page.URL.String()))
 
 				e.frontier.ProcessPage(ctx, page)
 				for _, link := range page.Links {
