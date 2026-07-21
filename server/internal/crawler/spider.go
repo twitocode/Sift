@@ -78,10 +78,11 @@ func (sp *Spider) Walk(ctx context.Context) {
 				Host:  job.host,
 				Links: foundUrls,
 			}
-			select {
-			case sp.sendChan <- pageMeta:
-			default:
-			}
+
+			//TODO: implement overflow
+
+			sp.sendChan <- pageMeta
+
 		}
 	}
 }

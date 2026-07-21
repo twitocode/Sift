@@ -5,8 +5,10 @@ import (
 	"errors"
 	"net/url"
 	"slices"
+	"strings"
 	"time"
 
+	"github.com/zeebo/xxh3"
 	"go.uber.org/zap"
 )
 
@@ -77,7 +79,6 @@ func (fs *FrontierStore) AddUrl(ctx context.Context, rawUrl string, linkReceiveC
 	case <-ctx.Done():
 		return
 	case linkReceiveChan <- rawUrl:
-	default:
 	}
 }
 
@@ -90,7 +91,6 @@ func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *SpiderPayload)
 		case fs.readyQueue <- *job:
 			bQueue.Lock()
 			fs.dispatched.Set(job.url, struct{}{})
-		default:
 		}
 	}
 }
@@ -137,7 +137,6 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, link string) {
 		case fs.readyQueue <- payload:
 			fs.dispatched.Set(link, struct{}{})
 			bQueue.Lock()
-		default:
 		}
 		return
 	} else {
@@ -223,5 +222,7 @@ func (fs *FrontierStore) IsLinkDispatched(link string) bool {
 }
 
 func (fs *FrontierStore) SanitizeURL(link string) (string, error) {
+
 	return link, nil
 }
+
