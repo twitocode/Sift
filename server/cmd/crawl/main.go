@@ -17,13 +17,15 @@ func main() {
 	log := app.NewLogger(os.Getenv)
 	app.NewConfig(os.Getenv)
 
-	_, err := sql.Open("sqlite", "../../db/sqlite/sift.db")
+	sqliteDb, err := sql.Open("sqlite", "../../db/sqlite/sift.db")
 
 	if err != nil {
 		log.Fatal("Sqlite connection error", zap.Error(err))
 	}
 	log.Info("Connected to Sqlite")
 
-	crawler.NewEngine(log).Start()
+	pageRepo := crawler.NewPageRepository(sqliteDb, log)
+
+	crawler.NewEngine(log, pageRepo).Start()
 	fmt.Scanln()
 }

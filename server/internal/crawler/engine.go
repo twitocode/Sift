@@ -21,23 +21,24 @@ type Engine struct {
 	dnsCache *DNSCache
 	log      *zap.Logger
 	workerWg sync.WaitGroup
-  pageRepo *PageRepository
+	pageRepo *PageRepository
 	frontier *FrontierStore
 }
 
-func NewEngine(log *zap.Logger) *Engine {
-	const workers = 50
+func NewEngine(log *zap.Logger, pageRepo *PageRepository) *Engine {
+	const workers = 150
 
 	dnsCache := NewDNSCache(log)
-  maxPagesCrawled := 1000
+	maxPagesCrawled := 10_000
 
 	return &Engine{
-		pageReceiveChan: make(chan *PageMetadata, 128),
-		linkReceiveChan: make(chan URL, 1024),
+		pageReceiveChan: make(chan *PageMetadata, 256),
+		linkReceiveChan: make(chan URL, 2048),
 		spiderFailChan:  make(chan URL, workers),
 		maxPagesCrawled: maxPagesCrawled,
 		pagesCrawled:    0,
 		workers:         workers,
+		pageRepo:        pageRepo,
 		frontier:        NewFrontierStore(log, dnsCache, workers, maxPagesCrawled),
 		dnsCache:        dnsCache,
 		log:             log,
@@ -50,6 +51,8 @@ func (e *Engine) Start() {
 
 	e.workerWg.Add(e.workers)
 
+	go e.pageRepo.RunTimer(ctx)
+
 	go e.Seed(ctx)
 	go e.startWorkers(ctx, e.workers)
 	go e.loop(ctx, cancel)
@@ -59,7 +62,7 @@ func (e *Engine) Start() {
 }
 
 func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {
-	ticker := time.NewTicker(time.Millisecond * 500)
+	ticker := time.NewTicker(time.Millisecond * 1000)
 	defer ticker.Stop()
 
 	go func() {
@@ -84,7 +87,9 @@ func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {
 				e.pagesCrawled++
 				e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.String("url", page.URL.String()))
 
+				e.pageRepo.Add(ctx, *page)
 				e.frontier.ProcessPage(ctx, page)
+
 				for _, link := range page.Links {
 					go e.frontier.AddUrl(ctx, link, e.linkReceiveChan)
 				}
@@ -104,6 +109,7 @@ func (e *Engine) Seed(ctx context.Context) {
 }
 
 func (e *Engine) startWorkers(ctx context.Context, workerCount int) {
+	e.log.Info("Starting up workers")
 	go func() {
 		for w := 1; w <= workerCount; w++ {
 			spider := NewSpider(

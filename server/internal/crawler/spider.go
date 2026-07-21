@@ -80,9 +80,7 @@ func (sp *Spider) Walk(ctx context.Context) {
 			}
 
 			//TODO: implement overflow
-
 			sp.sendChan <- pageMeta
-
 		}
 	}
 }

@@ -87,15 +87,15 @@ func (fs *FrontierStore) HasLinkBeenCrawled(link URL) bool {
 }
 
 func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
-	link, err := fs.SanitizeURL(link)
+	sanitizedURL, err := fs.SanitizeURL(link)
 	if err != nil {
-		fs.log.Warn("Website not allowed", zap.String("url", link.String()))
+		fs.log.Warn("Website not allowed", zap.String("url", sanitizedURL.String()))
 		return
 	}
 
-	hostname, err := link.GetHost()
+	hostname, err := sanitizedURL.GetHost()
 	if err != nil {
-		fs.log.Warn("Invalid url given (linkReceiveChan)", zap.String("url", link.String()))
+		fs.log.Warn("Invalid url given (linkReceiveChan)", zap.String("url", sanitizedURL.String()))
 		return
 	}
 
@@ -104,13 +104,13 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
 		return
 	}
 
-	dispatchedAlready := fs.dispatched.Contains(link)
+	dispatchedAlready := fs.dispatched.Contains(sanitizedURL)
 	hostQueueAvailable := bQueue.IsAvailable()
 	readyQueueAvailable := len(fs.readyQueue) < fs.workers
 
 	if !dispatchedAlready && hostQueueAvailable && readyQueueAvailable {
 		payload := SpiderPayload{
-			url:           link,
+			url:           sanitizedURL,
 			host:          hostname,
 			dialerContext: fs.dnsCache.DialContext,
 		}
@@ -119,13 +119,13 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
 		case <-ctx.Done():
 			return
 		case fs.readyQueue <- payload:
-			fs.dispatched.Set(link, struct{}{})
+			fs.dispatched.Set(sanitizedURL, struct{}{})
 			bQueue.Lock()
 		}
 		return
 	} else {
 		//fs.log.Debug("Adding back to buffer", zap.String("host", hostname.String()), zap.String("url", link.String()))
-		bQueue.Enqueue(link)
+		bQueue.Enqueue(sanitizedURL)
 	}
 }
 
@@ -210,5 +210,8 @@ func (fs *FrontierStore) SanitizeURL(link URL) (URL, error) {
 		return "", errors.New("Link already crawled")
 	}
 
-	return link, nil
+
+
+
+	return link.normalizeString(), nil
 }

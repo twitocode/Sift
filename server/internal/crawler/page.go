@@ -15,17 +15,19 @@ type PageRepository struct {
 	queries    *db.Queries
 	bufferChan chan *PageMetadata
 	buffer     []*PageMetadata
+  bufferSize int
 	log        *zap.Logger
 
 	mu sync.Mutex
 }
 
 func NewPageRepository(sqliteDb *sql.DB, log *zap.Logger) *PageRepository {
+  bufferSize := 200
 	return &PageRepository{
 		queries:    db.New(sqliteDb),
 		bufferChan: make(chan *PageMetadata),
 		sqliteDb:   sqliteDb,
-		buffer:     make([]*PageMetadata, 0, 200),
+		buffer:     make([]*PageMetadata, 0, bufferSize),
 		log:        log,
 	}
 }
@@ -45,7 +47,7 @@ func (sr *PageRepository) RunTimer(ctx context.Context) {
 				}
 
 				sr.buffer = append(sr.buffer, meta)
-				if len(sr.buffer) >= 200 {
+				if len(sr.buffer) >= sr.bufferSize {
 					sr.flush(ctx)
 				}
 

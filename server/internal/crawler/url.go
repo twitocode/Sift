@@ -14,6 +14,11 @@ func (u URL) normalizeString() URL {
 	s := strings.ToLower(string(u))
 	s = strings.Split(s, "?")[0]
 	s = strings.Split(s, "#")[0]
+
+	if s[len(s)-1] == '/' {
+		s = s[0 : len(s)-1]
+	}
+
 	return URL(s)
 }
 
