@@ -57,7 +57,7 @@ func (dc *DNSCache) resolve(ctx context.Context, host string) (net.IP, error) {
 		return ips[0], nil
 	})
 	if err != nil {
-		dc.log.Warn("DNS lookup failed", zap.String("host", host), zap.Error(err))
+		dc.log.Debug("DNS lookup failed", zap.String("host", host), zap.Error(err))
 		return nil, err
 	}
 

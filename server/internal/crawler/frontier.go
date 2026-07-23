@@ -37,14 +37,14 @@ func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, workerCount, maxPages
 		bufferQueues: NewSafeMap[URL, *BQueue](),
 		readyQueue:   make(chan SpiderPayload, workerCount),
 		dispatched:   NewSafeMap[URL, struct{}](),
-		bloomFilter:  NewBloomFilter(float64(maxPagesCrawled), 0.1),
+		bloomFilter:  NewBloomFilter(float64(maxPagesCrawled*2), 0.01),
 		dnsCache:     dnsCache,
 		workers:      workerCount,
 		log:          log,
 	}
 }
 
-func (fs *FrontierStore) AddUrl(ctx context.Context, rawUrl URL, linkReceiveChan chan<- URL) {
+func (fs *FrontierStore) AddUrl(ctx context.Context, rawUrl URL) {
 	hostname, err := rawUrl.GetHost()
 	if err != nil {
 		fs.log.Warn("Invalid url given", zap.String("url", rawUrl.String()))
@@ -62,16 +62,16 @@ func (fs *FrontierStore) AddUrl(ctx context.Context, rawUrl URL, linkReceiveChan
 
 		fs.bufferQueues.Set(hostname, queue)
 	}
-	select {
-	case <-ctx.Done():
-		return
-	case linkReceiveChan <- rawUrl:
-	}
+	// select {
+	// case <-ctx.Done():
+	// 	return
+	// case linkReceiveChan <- rawUrl:
+	// }
 }
 
 func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *SpiderPayload) {
 	bQueue, exists := fs.bufferQueues.Get(job.host)
-	if exists && bQueue.IsAvailable() {
+	if exists {
 		select {
 		case <-ctx.Done():
 			return
@@ -159,7 +159,7 @@ func (fs *FrontierStore) ProcessPage(ctx context.Context, page *PageMetadata) er
 }
 
 func (fs *FrontierStore) Shutdown() {
-	close(fs.readyQueue)
+	//close(fs.readyQueue)
 }
 
 // used for timer
@@ -167,11 +167,12 @@ func (fs *FrontierStore) FindAvailableJob() (*SpiderPayload, error) {
 	var job *SpiderPayload
 
 	fs.bufferQueues.Range(func(host URL, queue *BQueue) bool {
-		queue.mu.Lock()
-		defer queue.mu.Unlock()
-
 		if queue.IsAvailable() {
 			url := queue.Dequeue()
+      if url == "" {
+        return true
+      }
+
 			job = &SpiderPayload{
 				url:           url,
 				host:          host,
@@ -188,10 +189,12 @@ func (fs *FrontierStore) FindAvailableJob() (*SpiderPayload, error) {
 	return job, nil
 }
 
-func (fs *FrontierStore) HandleSpiderFail(host URL) {
-	bQueue, exists := fs.bufferQueues.Get(host)
+func (fs *FrontierStore) HandleSpiderFail(payload SpiderPayload) {
+	fs.dispatched.Delete(payload.url)
+
+	bQueue, exists := fs.bufferQueues.Get(payload.host)
 	if exists {
-		bQueue.Timeout(400)
+		bQueue.TryUnlock()
 	}
 }
 
@@ -210,8 +213,17 @@ func (fs *FrontierStore) SanitizeURL(link URL) (URL, error) {
 		return "", errors.New("Link already crawled")
 	}
 
-
-
-
 	return link.normalizeString(), nil
+}
+
+func (fs *FrontierStore) FreeHosts() {
+	fs.bufferQueues.Range(func(url URL, bQueue *BQueue) bool {
+		bQueue.mu.Lock()
+		defer bQueue.mu.Unlock()
+		if bQueue.Locked && time.Now().After(bQueue.StaleUntil) {
+			bQueue.Locked = false
+		}
+
+		return true
+	})
 }

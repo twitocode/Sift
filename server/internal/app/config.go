@@ -43,14 +43,14 @@ func NewConfig(_ func(string) string) *Config {
 	return &cfg
 }
 
-func NewLogger(getenv func(string) string) *zap.Logger {
+func NewLogger(getenv func(string) string, level zapcore.Level) *zap.Logger {
 	if getenv("APP_ENV") == "production" {
 		return zap.Must(zap.NewProduction())
 	}
 	core := zapcore.NewCore(
 		newDevelopmentEncoder(),
 		zapcore.Lock(os.Stderr),
-		zap.NewAtomicLevelAt(zap.DebugLevel),
+		zap.NewAtomicLevelAt(level),
 	)
 	return zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel), zap.Development())
 }

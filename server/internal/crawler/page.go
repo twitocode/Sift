@@ -15,50 +15,65 @@ type PageRepository struct {
 	queries    *db.Queries
 	bufferChan chan *PageMetadata
 	buffer     []*PageMetadata
-  bufferSize int
+	bufferSize int
 	log        *zap.Logger
 
 	mu sync.Mutex
 }
 
 func NewPageRepository(sqliteDb *sql.DB, log *zap.Logger) *PageRepository {
-  bufferSize := 200
+	bufferSize := 256
 	return &PageRepository{
 		queries:    db.New(sqliteDb),
-		bufferChan: make(chan *PageMetadata),
+		bufferChan: make(chan *PageMetadata, bufferSize*2),
 		sqliteDb:   sqliteDb,
 		buffer:     make([]*PageMetadata, 0, bufferSize),
 		log:        log,
 	}
 }
 
-func (sr *PageRepository) RunTimer(ctx context.Context) {
+func (sr *PageRepository) RunTimer(ctx context.Context, wg *sync.WaitGroup) {
 	ticker := time.NewTicker(time.Second * 4)
 	defer ticker.Stop()
 
-	sr.log.Info("Started Batcher")
-	go func() {
-		for {
-			select {
-			case meta, ok := <-sr.bufferChan:
-				if !ok {
-					sr.flush(ctx)
-					return
-				}
+	runFlush := func() {
+		newCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+		defer cancel()
+		sr.flush(newCtx)
+	}
 
-				sr.buffer = append(sr.buffer, meta)
-				if len(sr.buffer) >= sr.bufferSize {
-					sr.flush(ctx)
-				}
-
-			case <-ticker.C:
-        sr.log.Debug("Flushed buffer")
-				sr.flush(ctx)
-			}
+	drain := func() {
+		for meta := range sr.bufferChan {
+			sr.buffer = append(sr.buffer, meta)
 		}
-	}()
+	}
 
-	<-ctx.Done()
+	sr.log.Info("Started Batcher")
+	for {
+		select {
+		case <-ctx.Done():
+			drain()
+			runFlush()
+			wg.Done()
+			return
+		case meta, ok := <-sr.bufferChan:
+			if !ok {
+				drain()
+				runFlush()
+				wg.Done()
+				return
+			}
+
+			sr.buffer = append(sr.buffer, meta)
+			if len(sr.buffer) >= sr.bufferSize {
+				runFlush()
+			}
+
+		case <-ticker.C:
+			sr.log.Debug("Flushed buffer")
+			runFlush()
+		}
+	}
 }
 
 func (sr *PageRepository) flush(ctx context.Context) {
@@ -89,11 +104,18 @@ func (sr *PageRepository) flush(ctx context.Context) {
 	sr.buffer = sr.buffer[:0]
 }
 
+func (sr *PageRepository) Shutdown() {
+	close(sr.bufferChan)
+}
+
 // doing a direct insert for now
 func (sr *PageRepository) Add(ctx context.Context, sm PageMetadata) error {
-	sr.bufferChan <- &sm
-
-	return nil
+	select {
+	case <-ctx.Done():
+		return nil
+	case sr.bufferChan <- &sm:
+		return nil
+	}
 }
 
 func (sr *PageRepository) Contains(ctx context.Context, url URL) (bool, error) {
@@ -104,6 +126,7 @@ func (sr *PageRepository) Contains(ctx context.Context, url URL) (bool, error) {
 
 	return exists != 0, err
 }
+
 func (sr *PageRepository) Get(ctx context.Context, url URL) (*PageMetadata, error) {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()

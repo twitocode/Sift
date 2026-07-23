@@ -14,7 +14,7 @@ import (
 
 func main() {
 
-	log := app.NewLogger(os.Getenv)
+	log := app.NewLogger(os.Getenv, zap.InfoLevel)
 	app.NewConfig(os.Getenv)
 
 	sqliteDb, err := sql.Open("sqlite", "../../db/sqlite/sift.db")

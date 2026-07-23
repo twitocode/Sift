@@ -17,8 +17,12 @@ type BQueue struct {
 }
 
 func (b *BQueue) IsAvailable() bool {
+  b.mu.Lock()
+  defer b.mu.Unlock()
 	return !b.Locked && time.Now().After(b.StaleUntil)
 }
+
+
 
 func (b *BQueue) Dequeue() URL {
 	b.mu.Lock()
@@ -65,6 +69,6 @@ func (b *BQueue) TryUnlock() error {
 	if !time.Now().After(b.StaleUntil) {
 		return errors.New("Buffer queue not available yet")
 	}
-	b.Locked = true
+	b.Locked = false
 	return nil
 }
