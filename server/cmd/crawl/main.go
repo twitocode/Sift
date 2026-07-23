@@ -24,8 +24,8 @@ func main() {
 	}
 	log.Info("Connected to Sqlite")
 
-	pageRepo := crawler.NewPageRepository(sqliteDb, log)
+	store := crawler.NewPageStore(sqliteDb, log)
 
-	crawler.NewEngine(log, pageRepo).Start()
+	crawler.NewEngine(log, store).Start()
 	fmt.Scanln()
 }

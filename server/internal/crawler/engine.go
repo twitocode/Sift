@@ -22,11 +22,11 @@ type Engine struct {
 	dnsCache *DNSCache
 	log      *zap.Logger
 	workerWg sync.WaitGroup
-	pageRepo *PageRepository
+	store    *PageStore
 	frontier *FrontierStore
 }
 
-func NewEngine(log *zap.Logger, pageRepo *PageRepository) *Engine {
+func NewEngine(log *zap.Logger, store *PageStore) *Engine {
 	const workers = 150
 
 	dnsCache := NewDNSCache(log)
@@ -39,7 +39,7 @@ func NewEngine(log *zap.Logger, pageRepo *PageRepository) *Engine {
 		maxPagesCrawled: maxPagesCrawled,
 		pagesCrawled:    1,
 		workers:         workers,
-		pageRepo:        pageRepo,
+		store:           store,
 		frontier:        NewFrontierStore(log, dnsCache, workers, maxPagesCrawled),
 		dnsCache:        dnsCache,
 		log:             log,
@@ -53,10 +53,10 @@ func (e *Engine) Start() {
 	defer ticker.Stop()
 
 	linkWorkers := 10
-	// +1 from repository
+	// +1 from store
 	e.workerWg.Add(e.workers + linkWorkers + 1)
 
-	go e.pageRepo.RunTimer(ctx, &e.workerWg)
+	go e.store.RunTimer(ctx, &e.workerWg)
 
 	go e.Seed(ctx)
 	go e.startLinkWorkers(ctx, linkWorkers)
@@ -91,7 +91,7 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 				e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.String("url", page.URL.String()))
 			}
 
-			e.pageRepo.Add(ctx, *page)
+			e.store.Add(ctx, *page)
 			e.frontier.ProcessPage(ctx, page)
 
 			for _, link := range page.Links {
@@ -170,7 +170,7 @@ func (e *Engine) startLinkWorkers(ctx context.Context, count int) {
 
 func (e *Engine) shutdown(cancel context.CancelFunc) {
 	cancel()
-	e.pageRepo.Shutdown()
+	e.store.Shutdown()
 	e.frontier.Shutdown()
 
 	//might not need to close

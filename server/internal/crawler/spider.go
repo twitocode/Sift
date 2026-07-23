@@ -10,11 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type SpiderPayload struct {
-	url           URL
-	host          URL
-	dialerContext DialerContext
-}
+
 
 type Spider struct {
 	id           int

@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type PageRepository struct {
+type PageStore struct {
 	sqliteDb   *sql.DB
 	queries    *db.Queries
 	bufferChan chan *PageMetadata
@@ -21,9 +21,9 @@ type PageRepository struct {
 	mu sync.Mutex
 }
 
-func NewPageRepository(sqliteDb *sql.DB, log *zap.Logger) *PageRepository {
+func NewPageStore(sqliteDb *sql.DB, log *zap.Logger) *PageStore {
 	bufferSize := 256
-	return &PageRepository{
+	return &PageStore{
 		queries:    db.New(sqliteDb),
 		bufferChan: make(chan *PageMetadata, bufferSize*2),
 		sqliteDb:   sqliteDb,
@@ -32,23 +32,23 @@ func NewPageRepository(sqliteDb *sql.DB, log *zap.Logger) *PageRepository {
 	}
 }
 
-func (sr *PageRepository) RunTimer(ctx context.Context, wg *sync.WaitGroup) {
+func (ps *PageStore) RunTimer(ctx context.Context, wg *sync.WaitGroup) {
 	ticker := time.NewTicker(time.Second * 4)
 	defer ticker.Stop()
 
 	runFlush := func() {
 		newCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 		defer cancel()
-		sr.flush(newCtx)
+		ps.flush(newCtx)
 	}
 
 	drain := func() {
-		for meta := range sr.bufferChan {
-			sr.buffer = append(sr.buffer, meta)
+		for meta := range ps.bufferChan {
+			ps.buffer = append(ps.buffer, meta)
 		}
 	}
 
-	sr.log.Info("Started Batcher")
+	ps.log.Info("Started Batcher")
 	for {
 		select {
 		case <-ctx.Done():
@@ -56,7 +56,7 @@ func (sr *PageRepository) RunTimer(ctx context.Context, wg *sync.WaitGroup) {
 			runFlush()
 			wg.Done()
 			return
-		case meta, ok := <-sr.bufferChan:
+		case meta, ok := <-ps.bufferChan:
 			if !ok {
 				drain()
 				runFlush()
@@ -64,21 +64,21 @@ func (sr *PageRepository) RunTimer(ctx context.Context, wg *sync.WaitGroup) {
 				return
 			}
 
-			sr.buffer = append(sr.buffer, meta)
-			if len(sr.buffer) >= sr.bufferSize {
+			ps.buffer = append(ps.buffer, meta)
+			if len(ps.buffer) >= ps.bufferSize {
 				runFlush()
 			}
 
 		case <-ticker.C:
-			sr.log.Debug("Flushed buffer")
+			ps.log.Debug("Flushed buffer")
 			runFlush()
 		}
 	}
 }
 
-func (sr *PageRepository) flush(ctx context.Context) {
-	for _, sm := range sr.buffer {
-		err := sr.queries.SetPageInfo(ctx, db.SetPageInfoParams{
+func (ps *PageStore) flush(ctx context.Context) {
+	for _, sm := range ps.buffer {
+		err := ps.queries.SetPageInfo(ctx, db.SetPageInfoParams{
 			Url: sm.URL.String(),
 			Title: sql.NullString{
 				String: sm.Title,
@@ -97,41 +97,41 @@ func (sr *PageRepository) flush(ctx context.Context) {
 		})
 
 		if err != nil {
-			sr.log.Error("Sqlite write error", zap.Error(err))
+			ps.log.Error("Sqlite write error", zap.Error(err))
 		}
 	}
 
-	sr.buffer = sr.buffer[:0]
+	ps.buffer = ps.buffer[:0]
 }
 
-func (sr *PageRepository) Shutdown() {
-	close(sr.bufferChan)
+func (ps *PageStore) Shutdown() {
+	close(ps.bufferChan)
 }
 
 // doing a direct insert for now
-func (sr *PageRepository) Add(ctx context.Context, sm PageMetadata) error {
+func (ps *PageStore) Add(ctx context.Context, sm PageMetadata) error {
 	select {
 	case <-ctx.Done():
 		return nil
-	case sr.bufferChan <- &sm:
+	case ps.bufferChan <- &sm:
 		return nil
 	}
 }
 
-func (sr *PageRepository) Contains(ctx context.Context, url URL) (bool, error) {
-	sr.mu.Lock()
-	defer sr.mu.Unlock()
+func (ps *PageStore) Contains(ctx context.Context, url URL) (bool, error) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 
-	exists, err := sr.queries.FindPage(ctx, url.String())
+	exists, err := ps.queries.FindPage(ctx, url.String())
 
 	return exists != 0, err
 }
 
-func (sr *PageRepository) Get(ctx context.Context, url URL) (*PageMetadata, error) {
-	sr.mu.Lock()
-	defer sr.mu.Unlock()
+func (ps *PageStore) Get(ctx context.Context, url URL) (*PageMetadata, error) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 
-	page, err := sr.queries.GetPageInfo(ctx, url.String())
+	page, err := ps.queries.GetPageInfo(ctx, url.String())
 
 	if err != nil {
 		return nil, err
