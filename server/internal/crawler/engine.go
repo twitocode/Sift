@@ -27,10 +27,10 @@ type Engine struct {
 }
 
 func NewEngine(log *zap.Logger, store *PageStore) *Engine {
-	const workers = 150
+	const workers = 50
 
 	dnsCache := NewDNSCache(log)
-	maxPagesCrawled := 10_000
+	maxPagesCrawled := 100
 
 	return &Engine{
 		pageReceiveChan: make(chan *Page, 256),

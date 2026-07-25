@@ -110,6 +110,8 @@ func (p *HTMLParser) getMeta(body []byte, url URL) ParserOutput {
 	readingTitle := false
 	insideBody := false
 
+	tagsToIgnore := []string{"script", "style", "header", "footer", "nav", "svg", "aside", "noscript", "iframe", "canvas", "embed"}
+
 Loop:
 	for {
 		tokenType := tokenizer.Next()
@@ -137,7 +139,7 @@ Loop:
 					}
 				}
 
-				if token.Data == "script" || token.Data == "style" {
+				if slices.Contains(tagsToIgnore, token.Data) {
 					skipTextContent = true
 				}
 
@@ -163,7 +165,7 @@ Loop:
 			{
 				token := tokenizer.Token()
 
-				if token.Data == "script" || token.Data == "style" {
+				if slices.Contains(tagsToIgnore, token.Data) {
 					skipTextContent = false
 				}
 
@@ -182,7 +184,11 @@ Loop:
 					out.title += string(tokenizer.Text()) + " "
 				} else if insideBody {
 					if !skipTextContent {
-						buffer.Write(tokenizer.Text())
+						chars := tokenizer.Text()
+						//removes tab characters
+						chars = bytes.ReplaceAll(chars, []byte{'\t'}, nil)
+
+						buffer.Write(chars)
 						buffer.WriteByte(' ')
 					}
 				}

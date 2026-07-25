@@ -46,6 +46,7 @@ func (sp *Spider) Walk(ctx context.Context) {
 			}
 			//sp.log.Debug("Job Accquired", zap.String("url", job.url))
 
+      //TODO: does not respect redirects
 			req, _ := http.NewRequestWithContext(ctx, "GET", job.url.String(), nil)
 			mimicBrowser(req)
 
