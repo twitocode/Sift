@@ -11,9 +11,9 @@ import (
 )
 
 type Engine struct {
-	pageReceiveChan chan *PageMetadata
+	pageReceiveChan chan *Page
 	linkReceiveChan chan URL
-	spiderFailChan  chan SpiderPayload
+	spiderFailChan  chan Payload
 
 	maxPagesCrawled int
 	pagesCrawled    int
@@ -33,9 +33,9 @@ func NewEngine(log *zap.Logger, store *PageStore) *Engine {
 	maxPagesCrawled := 10_000
 
 	return &Engine{
-		pageReceiveChan: make(chan *PageMetadata, 256),
+		pageReceiveChan: make(chan *Page, 256),
 		linkReceiveChan: make(chan URL, 2048),
-		spiderFailChan:  make(chan SpiderPayload, workers),
+		spiderFailChan:  make(chan Payload, workers),
 		maxPagesCrawled: maxPagesCrawled,
 		pagesCrawled:    1,
 		workers:         workers,
@@ -76,6 +76,7 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 		case <-ticker.C:
 			e.frontier.FreeHosts()
 			potentialJob, err := e.frontier.FindAvailableJob()
+
 			if err != nil {
 				continue
 			}
@@ -85,13 +86,19 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 			}
 
 		case page := <-e.pageReceiveChan:
-
+      if page == nil {
+        continue
+      }
 			// e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.String("url", page.URL.String()))
 			if e.pagesCrawled%250 == 0 {
 				e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.String("url", page.URL.String()))
 			}
 
-			e.store.Add(ctx, *page)
+
+			if page.InEnglish {
+				e.store.Add(ctx, *page)
+			}
+      
 			e.frontier.ProcessPage(ctx, page)
 
 			for _, link := range page.Links {

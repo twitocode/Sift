@@ -13,8 +13,8 @@ import (
 type PageStore struct {
 	sqliteDb   *sql.DB
 	queries    *db.Queries
-	bufferChan chan *PageMetadata
-	buffer     []*PageMetadata
+	bufferChan chan *Page
+	buffer     []*Page
 	bufferSize int
 	log        *zap.Logger
 
@@ -25,9 +25,9 @@ func NewPageStore(sqliteDb *sql.DB, log *zap.Logger) *PageStore {
 	bufferSize := 256
 	return &PageStore{
 		queries:    db.New(sqliteDb),
-		bufferChan: make(chan *PageMetadata, bufferSize*2),
+		bufferChan: make(chan *Page, bufferSize*2),
 		sqliteDb:   sqliteDb,
-		buffer:     make([]*PageMetadata, 0, bufferSize),
+		buffer:     make([]*Page, 0, bufferSize),
 		log:        log,
 	}
 }
@@ -43,8 +43,8 @@ func (ps *PageStore) RunTimer(ctx context.Context, wg *sync.WaitGroup) {
 	}
 
 	drain := func() {
-		for meta := range ps.bufferChan {
-			ps.buffer = append(ps.buffer, meta)
+		for page := range ps.bufferChan {
+			ps.buffer = append(ps.buffer, page)
 		}
 	}
 
@@ -56,7 +56,7 @@ func (ps *PageStore) RunTimer(ctx context.Context, wg *sync.WaitGroup) {
 			runFlush()
 			wg.Done()
 			return
-		case meta, ok := <-ps.bufferChan:
+		case page, ok := <-ps.bufferChan:
 			if !ok {
 				drain()
 				runFlush()
@@ -64,7 +64,7 @@ func (ps *PageStore) RunTimer(ctx context.Context, wg *sync.WaitGroup) {
 				return
 			}
 
-			ps.buffer = append(ps.buffer, meta)
+			ps.buffer = append(ps.buffer, page)
 			if len(ps.buffer) >= ps.bufferSize {
 				runFlush()
 			}
@@ -82,10 +82,17 @@ func (ps *PageStore) flush(ctx context.Context) {
 			Url: sm.URL.String(),
 			Title: sql.NullString{
 				String: sm.Title,
+				Valid:  true,
+			},
+			Description: sql.NullString{
+				String: sm.Description,
+				Valid:  true,
 			},
 			Text: sql.NullString{
 				String: sm.Text,
+				Valid:  true,
 			},
+
 			StatusCode: sql.NullInt64{
 				Int64: int64(sm.StatusCode),
 				Valid: true,
@@ -109,7 +116,7 @@ func (ps *PageStore) Shutdown() {
 }
 
 // doing a direct insert for now
-func (ps *PageStore) Add(ctx context.Context, sm PageMetadata) error {
+func (ps *PageStore) Add(ctx context.Context, sm Page) error {
 	select {
 	case <-ctx.Done():
 		return nil
@@ -127,7 +134,7 @@ func (ps *PageStore) Contains(ctx context.Context, url URL) (bool, error) {
 	return exists != 0, err
 }
 
-func (ps *PageStore) Get(ctx context.Context, url URL) (*PageMetadata, error) {
+func (ps *PageStore) Get(ctx context.Context, url URL) (*Page, error) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 
@@ -137,7 +144,7 @@ func (ps *PageStore) Get(ctx context.Context, url URL) (*PageMetadata, error) {
 		return nil, err
 	}
 
-	siteInfo := &PageMetadata{
+	siteInfo := &Page{
 		ContentHash: page.ContentHash.String,
 		Title:       page.Title.String,
 		Text:        page.Text.String,

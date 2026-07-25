@@ -12,7 +12,7 @@ import (
 
 type FrontierStore struct {
 	bufferQueues *SafeMap[URL, *BQueue]
-	readyQueue   chan SpiderPayload
+	readyQueue   chan Payload
 	dispatched   *SafeMap[URL, struct{}]
 	bloomFilter  *BloomFilter
 
@@ -25,7 +25,7 @@ type FrontierStore struct {
 func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, workerCount, maxPagesCrawled int) *FrontierStore {
 	return &FrontierStore{
 		bufferQueues: NewSafeMap[URL, *BQueue](),
-		readyQueue:   make(chan SpiderPayload, workerCount),
+		readyQueue:   make(chan Payload, workerCount),
 		dispatched:   NewSafeMap[URL, struct{}](),
 		bloomFilter:  NewBloomFilter(float64(maxPagesCrawled*2), 0.01),
 		dnsCache:     dnsCache,
@@ -59,7 +59,7 @@ func (fs *FrontierStore) AddUrl(ctx context.Context, rawUrl URL) {
 	// }
 }
 
-func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *SpiderPayload) {
+func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *Payload) {
 	bQueue, exists := fs.bufferQueues.Get(job.host)
 	if exists {
 		select {
@@ -99,7 +99,7 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
 	readyQueueAvailable := len(fs.readyQueue) < fs.workers
 
 	if !dispatchedAlready && hostQueueAvailable && readyQueueAvailable {
-		payload := SpiderPayload{
+		payload := Payload{
 			url:           sanitizedURL,
 			host:          hostname,
 			dialerContext: fs.dnsCache.DialContext,
@@ -119,7 +119,7 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
 	}
 }
 
-func (fs *FrontierStore) ProcessPage(ctx context.Context, page *PageMetadata) error {
+func (fs *FrontierStore) ProcessPage(ctx context.Context, page *Page) error {
 	if !fs.IsLinkDispatched(page.URL) {
 		return errors.New("Link for some reason not available")
 	}
@@ -153,8 +153,8 @@ func (fs *FrontierStore) Shutdown() {
 }
 
 // used for timer
-func (fs *FrontierStore) FindAvailableJob() (*SpiderPayload, error) {
-	var job *SpiderPayload
+func (fs *FrontierStore) FindAvailableJob() (*Payload, error) {
+	var job *Payload
 
 	fs.bufferQueues.Range(func(host URL, queue *BQueue) bool {
 		if queue.IsAvailable() {
@@ -163,7 +163,7 @@ func (fs *FrontierStore) FindAvailableJob() (*SpiderPayload, error) {
         return true
       }
 
-			job = &SpiderPayload{
+			job = &Payload{
 				url:           url,
 				host:          host,
 				dialerContext: fs.dnsCache.DialContext,
@@ -179,7 +179,7 @@ func (fs *FrontierStore) FindAvailableJob() (*SpiderPayload, error) {
 	return job, nil
 }
 
-func (fs *FrontierStore) HandleSpiderFail(payload SpiderPayload) {
+func (fs *FrontierStore) HandleSpiderFail(payload Payload) {
 	fs.dispatched.Delete(payload.url)
 
 	bQueue, exists := fs.bufferQueues.Get(payload.host)

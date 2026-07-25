@@ -1,8 +1,16 @@
 -- name: SetPageInfo :exec
 INSERT
-OR REPLACE INTO pages (url, title, text, status_code, crawled_at, content_hash)
+OR REPLACE INTO pages (
+  url,
+  title,
+  text,
+  description,
+  status_code,
+  crawled_at,
+  content_hash
+)
 VALUES
-  (?, ?, ?, ?, ?);
+  (?, ?, ?, ?, ?, ?, ?);
 
 -- name: FindPage :one
 SELECT

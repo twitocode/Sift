@@ -29,3 +29,6 @@ So the original system with Bloom filters used to use an array of bytes which wi
 when going through performance issues i noticed that i kept making goroutines when it was not needed. I also did not have proper cancelation procedures when shutting down; leading to many channel sending errors.
 
 As of July 22, 2026 the program can crawl 10,000 pages with 150 spiders crawling.
+
+
+major issue: my crawler does not handle js heavy websites
