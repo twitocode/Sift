@@ -7,10 +7,11 @@ OR REPLACE INTO pages (
   description,
   status_code,
   crawled_at,
+  has_been_crawled,
   content_hash
 )
 VALUES
-  (?, ?, ?, ?, ?, ?, ?);
+  (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: FindPage :one
 SELECT

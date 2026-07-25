@@ -31,7 +31,7 @@ func (q *Queries) FindPage(ctx context.Context, url string) (int64, error) {
 
 const getPageInfo = `-- name: GetPageInfo :one
 SELECT
-  url, title, description, text, status_code, crawled_at, content_hash
+  url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled
 FROM
   pages
 WHERE
@@ -49,6 +49,7 @@ func (q *Queries) GetPageInfo(ctx context.Context, url string) (Page, error) {
 		&i.StatusCode,
 		&i.CrawledAt,
 		&i.ContentHash,
+		&i.HasBeenCrawled,
 	)
 	return i, err
 }
@@ -62,20 +63,22 @@ OR REPLACE INTO pages (
   description,
   status_code,
   crawled_at,
+  has_been_crawled,
   content_hash
 )
 VALUES
-  (?, ?, ?, ?, ?, ?, ?)
+  (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type SetPageInfoParams struct {
-	Url         string
-	Title       sql.NullString
-	Text        sql.NullString
-	Description sql.NullString
-	StatusCode  sql.NullInt64
-	CrawledAt   sql.NullTime
-	ContentHash sql.NullString
+	Url            string
+	Title          sql.NullString
+	Text           sql.NullString
+	Description    sql.NullString
+	StatusCode     sql.NullInt64
+	CrawledAt      sql.NullTime
+	HasBeenCrawled sql.NullInt64
+	ContentHash    sql.NullString
 }
 
 func (q *Queries) SetPageInfo(ctx context.Context, arg SetPageInfoParams) error {
@@ -86,6 +89,7 @@ func (q *Queries) SetPageInfo(ctx context.Context, arg SetPageInfoParams) error 
 		arg.Description,
 		arg.StatusCode,
 		arg.CrawledAt,
+		arg.HasBeenCrawled,
 		arg.ContentHash,
 	)
 	return err

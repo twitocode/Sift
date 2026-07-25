@@ -13,6 +13,7 @@ type Page struct {
 	CrawledAt   time.Time
   InEnglish bool
 	ContentHash string //TODO: duplication detection, hash text form page (different urls same text)
+  HasBeenCrawled bool
 }
 
 type Payload struct {

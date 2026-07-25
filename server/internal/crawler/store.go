@@ -101,6 +101,10 @@ func (ps *PageStore) flush(ctx context.Context) {
 				Valid: true,
 				Time:  time.Now(),
 			},
+			HasBeenCrawled: sql.NullInt64{
+				Valid: true,
+				Int64: BoolToInt64(sm.HasBeenCrawled),
+			},
 		})
 
 		if err != nil {
@@ -155,4 +159,12 @@ func (ps *PageStore) Get(ctx context.Context, url URL) (*Page, error) {
 	}
 
 	return siteInfo, nil
+}
+
+func BoolToInt64(b bool) int64 {
+	if b {
+		return 1
+	}
+
+	return 0
 }

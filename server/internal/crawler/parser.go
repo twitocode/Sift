@@ -23,10 +23,11 @@ type HTMLParser struct {
 }
 
 type ParserOutput struct {
-	title       string
-	description string
-	text        string
-	inEnglish   bool
+	title          string
+	description    string
+	text           string
+	inEnglish      bool
+	hasBeenCrawled bool
 }
 
 func NewHTMLParser(log *zap.Logger) *HTMLParser {
@@ -60,15 +61,16 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job Payload)
 		output.description = ""
 	}
 	page := &Page{
-		URL:         job.url,
-		Host:        job.host,
-		Title:       output.title,
-		Description: output.description,
-		CrawledAt:   time.Now(),
-		InEnglish:   output.inEnglish,
-		StatusCode:  res.StatusCode,
-		Text:        output.text,
-		Links:       p.findLinks(doc, job.url),
+		URL:            job.url,
+		Host:           job.host,
+		Title:          output.title,
+		Description:    output.description,
+		CrawledAt:      time.Now(),
+		InEnglish:      output.inEnglish,
+		StatusCode:     res.StatusCode,
+		Text:           output.text,
+		Links:          p.findLinks(doc, job.url),
+		HasBeenCrawled: output.hasBeenCrawled,
 	}
 
 	return page, nil
@@ -100,7 +102,8 @@ func (p *HTMLParser) getMeta(body []byte, url URL) ParserOutput {
 	tokenizer := html.NewTokenizer(bytes.NewReader(body))
 	var buffer bytes.Buffer
 	var out ParserOutput = ParserOutput{
-		inEnglish: true,
+		inEnglish:      true,
+		hasBeenCrawled: false,
 	}
 
 	skipTextContent := false
@@ -116,6 +119,7 @@ Loop:
 			{
 				if tokenizer.Err() == io.EOF {
 					out.text = buffer.String()
+					out.hasBeenCrawled = true
 					break Loop
 				}
 				p.log.Error("HTML tokenizing error", zap.String("url", url.String()))

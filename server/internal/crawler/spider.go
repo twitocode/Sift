@@ -94,9 +94,10 @@ func (sp *Spider) Walk(ctx context.Context) {
 					}
 				} else {
 					page = &Page{
-						URL:       job.url,
-						Host:      job.host,
-						InEnglish: false,
+						URL:            job.url,
+						Host:           job.host,
+						InEnglish:      false,
+						HasBeenCrawled: false,
 					}
 					//TODO: pdf extraction
 				}

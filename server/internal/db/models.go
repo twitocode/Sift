@@ -14,11 +14,12 @@ type Link struct {
 }
 
 type Page struct {
-	Url         string
-	Title       sql.NullString
-	Description sql.NullString
-	Text        sql.NullString
-	StatusCode  sql.NullInt64
-	CrawledAt   sql.NullTime
-	ContentHash sql.NullString
+	Url            string
+	Title          sql.NullString
+	Description    sql.NullString
+	Text           sql.NullString
+	StatusCode     sql.NullInt64
+	CrawledAt      sql.NullTime
+	ContentHash    sql.NullString
+	HasBeenCrawled sql.NullInt64
 }
