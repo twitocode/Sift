@@ -32,3 +32,5 @@ As of July 22, 2026 the program can crawl 10,000 pages with 150 spiders crawling
 
 
 major issue: my crawler does not handle js heavy websites
+
+decided to implement simhash from scratch for html deduplication. bitwise operations were different to wrap my head around.

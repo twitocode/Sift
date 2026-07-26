@@ -26,6 +26,6 @@ func main() {
 
 	store := crawler.NewPageStore(sqliteDb, log)
 
-	crawler.NewEngine(log, store).Start()
+	crawler.NewEngine(log, store)
 	fmt.Scanln()
 }

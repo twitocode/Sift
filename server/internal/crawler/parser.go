@@ -31,6 +31,7 @@ type ParserOutput struct {
 }
 
 func NewHTMLParser(log *zap.Logger) *HTMLParser {
+
 	return &HTMLParser{log: log}
 }
 
@@ -112,6 +113,7 @@ func (p *HTMLParser) getMeta(body []byte, url URL) ParserOutput {
 
 	tagsToIgnore := []string{"script", "style", "header", "footer", "nav", "svg", "aside", "noscript", "iframe", "canvas", "embed"}
 
+  //TODO: add advertisement detection
 Loop:
 	for {
 		tokenType := tokenizer.Next()
