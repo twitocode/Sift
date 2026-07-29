@@ -31,3 +31,6 @@ FROM
   pages
 WHERE
   url = ?;
+
+-- name: GetAllpages :many
+SELECT * FROM pages WHERE has_been_crawled = TRUE;

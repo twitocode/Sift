@@ -1,22 +1,22 @@
 version: "2"
 sql:
-  - engine: "postgresql"
-    queries: "db/postgres/query"
-    schema: "db/postgres/migrations"
-    gen:
-      go:
-        package: "db"
-        out: "internal/db"
-        sql_package: "pgx/v5"
-        overrides:
-          - db_type: "uuid"
-            go_type:
-              import: "github.com/google/uuid"
-              type: "UUID"
-          - db_type: "vector"
-            go_type:
-              import: "github.com/pgvector/pgvector-go"
-              type: "Vector"
+  # - engine: "postgresql"
+  #   queries: "db/postgres/query"
+  #   schema: "db/postgres/migrations"
+  #   gen:
+  #     go:
+  #       package: "db"
+  #       out: "internal/db"
+  #       sql_package: "pgx/v5"
+  #       overrides:
+  #         - db_type: "uuid"
+  #           go_type:
+  #             import: "github.com/google/uuid"
+  #             type: "UUID"
+  #         - db_type: "vector"
+  #           go_type:
+  #             import: "github.com/pgvector/pgvector-go"
+  #             type: "Vector"
   - engine: "sqlite"
     queries: "db/sqlite/query"
     schema: "db/sqlite/migrations"

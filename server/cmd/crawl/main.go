@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
 	"os"
 
 	"github.com/twitocode/sift/internal/app"
@@ -13,7 +12,6 @@ import (
 )
 
 func main() {
-
 	log := app.NewLogger(os.Getenv, zap.InfoLevel)
 	app.NewConfig(os.Getenv)
 
@@ -25,7 +23,5 @@ func main() {
 	log.Info("Connected to Sqlite")
 
 	store := crawler.NewPageStore(sqliteDb, log)
-
-	crawler.NewEngine(log, store)
-	fmt.Scanln()
+	crawler.NewEngine(log, store).Start()
 }

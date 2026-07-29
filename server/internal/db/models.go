@@ -20,6 +20,6 @@ type Page struct {
 	Text           sql.NullString
 	StatusCode     sql.NullInt64
 	CrawledAt      sql.NullTime
-	ContentHash    sql.NullString
+	ContentHash    sql.NullInt64
 	HasBeenCrawled sql.NullInt64
 }

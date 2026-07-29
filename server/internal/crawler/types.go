@@ -12,7 +12,7 @@ type Page struct {
 	StatusCode  int // some pages return 429 stuff like that so i can filter out later if needed
 	CrawledAt   time.Time
   InEnglish bool
-	ContentHash string //TODO: duplication detection, hash text form page (different urls same text)
+	ContentHash uint64 //TODO: duplication detection, hash text form page (different urls same text)
   HasBeenCrawled bool
 }
 

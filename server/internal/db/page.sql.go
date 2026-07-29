@@ -29,6 +29,42 @@ func (q *Queries) FindPage(ctx context.Context, url string) (int64, error) {
 	return column_1, err
 }
 
+const getAllpages = `-- name: GetAllpages :many
+SELECT url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled FROM pages WHERE has_been_crawled = TRUE
+`
+
+func (q *Queries) GetAllpages(ctx context.Context) ([]Page, error) {
+	rows, err := q.db.QueryContext(ctx, getAllpages)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Page
+	for rows.Next() {
+		var i Page
+		if err := rows.Scan(
+			&i.Url,
+			&i.Title,
+			&i.Description,
+			&i.Text,
+			&i.StatusCode,
+			&i.CrawledAt,
+			&i.ContentHash,
+			&i.HasBeenCrawled,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPageInfo = `-- name: GetPageInfo :one
 SELECT
   url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled
@@ -78,7 +114,7 @@ type SetPageInfoParams struct {
 	StatusCode     sql.NullInt64
 	CrawledAt      sql.NullTime
 	HasBeenCrawled sql.NullInt64
-	ContentHash    sql.NullString
+	ContentHash    sql.NullInt64
 }
 
 func (q *Queries) SetPageInfo(ctx context.Context, arg SetPageInfoParams) error {

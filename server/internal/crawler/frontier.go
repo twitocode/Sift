@@ -8,14 +8,11 @@ import (
 	"go.uber.org/zap"
 )
 
-
-
 type FrontierStore struct {
 	bufferQueues *SafeMap[URL, *BQueue]
 	readyQueue   chan Payload
 	dispatched   *SafeMap[URL, struct{}]
 	bloomFilter  *BloomFilter
-
 	dnsCache *DNSCache
 
 	workers int
@@ -36,6 +33,7 @@ func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, workerCount, maxPages
 
 func (fs *FrontierStore) AddUrl(ctx context.Context, rawUrl URL) {
 	hostname, err := rawUrl.GetHost()
+
 	if err != nil {
 		fs.log.Warn("Invalid url given", zap.String("url", rawUrl.String()))
 		return
@@ -217,3 +215,4 @@ func (fs *FrontierStore) FreeHosts() {
 		return true
 	})
 }
+

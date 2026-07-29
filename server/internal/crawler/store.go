@@ -105,6 +105,10 @@ func (ps *PageStore) flush(ctx context.Context) {
 				Valid: true,
 				Int64: BoolToInt64(sm.HasBeenCrawled),
 			},
+      ContentHash: sql.NullInt64{
+        Valid: true,
+        Int64:int64(sm.ContentHash),
+      },
 		})
 
 		if err != nil {
@@ -149,7 +153,7 @@ func (ps *PageStore) Get(ctx context.Context, url URL) (*Page, error) {
 	}
 
 	siteInfo := &Page{
-		ContentHash: page.ContentHash.String,
+		ContentHash: uint64(page.ContentHash.Int64),
 		Title:       page.Title.String,
 		Text:        page.Text.String,
 		Description: page.Description.String,

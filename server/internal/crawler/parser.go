@@ -72,6 +72,7 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job Payload)
 		Text:           output.text,
 		Links:          p.findLinks(doc, job.url),
 		HasBeenCrawled: output.hasBeenCrawled,
+		ContentHash:    CreateSimhashFingerprint(output.text),
 	}
 
 	return page, nil
@@ -113,7 +114,7 @@ func (p *HTMLParser) getMeta(body []byte, url URL) ParserOutput {
 
 	tagsToIgnore := []string{"script", "style", "header", "footer", "nav", "svg", "aside", "noscript", "iframe", "canvas", "embed"}
 
-  //TODO: add advertisement detection
+	//TODO: add advertisement detection
 Loop:
 	for {
 		tokenType := tokenizer.Next()

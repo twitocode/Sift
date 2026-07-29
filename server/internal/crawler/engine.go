@@ -40,9 +40,10 @@ func NewEngine(log *zap.Logger, store *PageStore) *Engine {
 		pagesCrawled:    1,
 		workers:         workers,
 		store:           store,
-		frontier:        NewFrontierStore(log, dnsCache, workers, maxPagesCrawled),
-		dnsCache:        dnsCache,
-		log:             log,
+
+		frontier: NewFrontierStore(log, dnsCache, workers, maxPagesCrawled),
+		dnsCache: dnsCache,
+		log:      log,
 	}
 }
 
@@ -86,19 +87,18 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 			}
 
 		case page := <-e.pageReceiveChan:
-      if page == nil {
-        continue
-      }
+			if page == nil {
+				continue
+			}
 			// e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.String("url", page.URL.String()))
 			if e.pagesCrawled%250 == 0 {
 				e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.String("url", page.URL.String()))
 			}
 
-
 			if page.InEnglish {
 				e.store.Add(ctx, *page)
 			}
-      
+
 			e.frontier.ProcessPage(ctx, page)
 
 			for _, link := range page.Links {

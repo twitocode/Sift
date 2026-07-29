@@ -1,12 +1,155 @@
 package crawler
 
 import (
+	"math/bits"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/zeebo/xxh3"
 )
 
+/*
+
+All of this could probably be rewritten with math/bits package
+
+*/
+
 type Shingle []string
+
+type SimHashIndex struct {
+	tables          [][]uint64
+	hammingDistance int
+
+	mu sync.Mutex
+}
+
+func NewSimHashIndex(hammingDistance int, seed bool) *SimHashIndex {
+	var tables [][]uint64
+
+	if seed {
+		tables = [][]uint64{
+			{0x1F3A9C2E7B105D48, 0xA47C2E9F31B8D065, 0x0C9E5A2F7D31B846, 0x8E2F1A9C4D703B5E, 0x3B9F0C2E7A415D68},
+			{0x7A1C3E9F205B4D86, 0xE29F4C1A7B305D9E, 0x1D4A9E2F7C305B48, 0xF3B2C9E7A104D65C, 0x9C2E7F1A4B305D9E},
+			{0x4E9C2A1F7B305D68, 0xB1C7E2A9F304D65C, 0x2F9E4C1A7D305B48, 0xD3A2C9E7F104B65E, 0x5C1A9E2F7B304D68, 0x1F3A9C2E7B105D48},
+			{0x8B3F1C9E2A705D4E, 0x6E2C9A1F7B304D5E, 0xC1A9E2F73B405D68, 0x3E7A2C9F1B304D6E, 0xA9F1C2E73B405D8E},
+		}
+
+		for i := range tables {
+			slices.Sort(tables[i])
+		}
+
+	} else {
+		tables = [][]uint64{
+			make([]uint64, 0),
+			make([]uint64, 0),
+			make([]uint64, 0),
+			make([]uint64, 0),
+		}
+	}
+
+	return &SimHashIndex{
+		tables:          tables,
+		hammingDistance: hammingDistance,
+	}
+}
+
+func (shi *SimHashIndex) IsDuplicate(fingerprint uint64) bool {
+	shi.mu.Lock()
+	defer shi.mu.Unlock()
+	return shi._isDuplicate(fingerprint)
+}
+
+func (shi *SimHashIndex) _isDuplicate(fingerprint uint64) bool {
+	var wg sync.WaitGroup
+	candidates := make([]uint64, 0)
+
+	for i, fingerprints := range shi.tables {
+		targetChunk := GetChunk(fingerprint, i)
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			found, exists := shi.BinarySearchChunk(i, targetChunk, fingerprints)
+			if exists {
+				shi.mu.Lock()
+				candidates = append(candidates, found)
+				shi.mu.Unlock()
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	shi.mu.Lock()
+	defer shi.mu.Unlock()
+	for _, candidate := range candidates {
+		if AreFingerprintsSimilar(candidate, fingerprint, shi.hammingDistance) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (shi *SimHashIndex) BinarySearchChunk(chunkNumber int, targetChunk uint64, fingerprints []uint64) (uint64, bool) {
+  if len(fingerprints) == 0 {
+    return 0, false
+  }
+	return shi._binarySearchChunk(chunkNumber, targetChunk, fingerprints, 0, len(fingerprints))
+}
+
+func (shi *SimHashIndex) _binarySearchChunk(chunkNumber int, targetChunk uint64, fingerprints []uint64, low, high int) (uint64, bool) {
+	if high-low == 0 {
+		fingerprint := fingerprints[0]
+		foundChunk := GetChunk(fingerprint, chunkNumber)
+
+		if foundChunk == targetChunk {
+			return fingerprint, true
+		}
+
+		return 0, false
+	} else if high-low < 0 {
+		return 0, false
+	}
+
+	midIndex := (low + high) / 2
+	fingerprint := fingerprints[midIndex]
+	foundChunk := GetChunk(fingerprint, chunkNumber)
+
+	if targetChunk == foundChunk {
+		return fingerprint, true
+	} else if targetChunk < fingerprints[midIndex] {
+		return shi._binarySearchChunk(chunkNumber, targetChunk, fingerprints, low, midIndex)
+	} else if targetChunk > fingerprints[midIndex] {
+		return shi._binarySearchChunk(chunkNumber, targetChunk, fingerprints, midIndex, high)
+	}
+
+	return 0, false
+}
+
+func (shi *SimHashIndex) TryInsert(fingerprint uint64) bool {
+	shi.mu.Lock()
+	defer shi.mu.Unlock()
+
+	if shi._isDuplicate(fingerprint) {
+		return false
+	}
+
+	for i, fingerprints := range shi.tables {
+		shi.tables[i] = append(fingerprints, fingerprint)
+
+		slices.SortFunc(shi.tables[i], func(a, b uint64) int {
+			return int(GetChunk(a, i) - GetChunk(b, i))
+		})
+	}
+
+	return true
+}
+
+func GetChunk(fingerprint uint64, chunkNumber int) uint64 {
+	return (fingerprint >> uint64(chunkNumber)) & ((1 << 16) - 1)
+}
 
 func CreateSimhashFingerprint(text string) uint64 {
 	//Google standard
@@ -87,4 +230,8 @@ func ListBits64(hash uint64) []int {
 }
 
 // divide and conquer
-func CompareSimHashes() {}
+func AreFingerprintsSimilar(f1, f2 uint64, threshold int) bool {
+	out := f1 ^ f2
+	hammingDistance := bits.OnesCount64(out)
+	return hammingDistance <= threshold
+}
