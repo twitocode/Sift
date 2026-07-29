@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"os"
 
@@ -12,7 +13,7 @@ import (
 )
 
 func main() {
-	log := app.NewLogger(os.Getenv, zap.InfoLevel)
+	log := app.NewLogger(os.Getenv, zap.DebugLevel)
 	app.NewConfig(os.Getenv)
 
 	sqliteDb, err := sql.Open("sqlite", "../../db/sqlite/sift.db")
@@ -23,5 +24,8 @@ func main() {
 	log.Info("Connected to Sqlite")
 
 	store := crawler.NewPageStore(sqliteDb, log)
-	crawler.NewEngine(log, store).Start()
+	crawler.NewEngine(log, store)
+
+  deduplicator := crawler.NewDeduplicator(store, log)
+  deduplicator.Start(context.Background())
 }

@@ -189,7 +189,7 @@ Loop:
 					if !skipTextContent {
 						chars := tokenizer.Text()
 						//removes tab characters
-						chars = bytes.ReplaceAll(chars, []byte{'\t'}, nil)
+						chars = bytes.ReplaceAll(chars, []byte{'\t', '\n'}, nil)
 
 						buffer.Write(chars)
 						buffer.WriteByte(' ')

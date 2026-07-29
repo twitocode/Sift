@@ -30,7 +30,7 @@ func NewEngine(log *zap.Logger, store *PageStore) *Engine {
 	const workers = 50
 
 	dnsCache := NewDNSCache(log)
-	maxPagesCrawled := 100
+	maxPagesCrawled := 2000
 
 	return &Engine{
 		pageReceiveChan: make(chan *Page, 256),
@@ -60,6 +60,8 @@ func (e *Engine) Start() {
 	go e.store.RunTimer(ctx, &e.workerWg)
 
 	go e.Seed(ctx)
+
+  //TODO: collect from db first
 	go e.startLinkWorkers(ctx, linkWorkers)
 	go e.startSpiders(ctx, e.workers)
 	go e.loop(ctx, ticker, cancel)

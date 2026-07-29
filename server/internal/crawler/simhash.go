@@ -54,86 +54,62 @@ func NewSimHashIndex(hammingDistance int, seed bool) *SimHashIndex {
 	}
 }
 
-func (shi *SimHashIndex) IsDuplicate(fingerprint uint64) bool {
+func (shi *SimHashIndex) IsDuplicate(fingerprint uint64) (bool, uint64) {
 	shi.mu.Lock()
 	defer shi.mu.Unlock()
 	return shi._isDuplicate(fingerprint)
 }
 
-func (shi *SimHashIndex) _isDuplicate(fingerprint uint64) bool {
-	var wg sync.WaitGroup
+func (shi *SimHashIndex) _isDuplicate(fingerprint uint64) (bool, uint64) {
 	candidates := make([]uint64, 0)
 
 	for i, fingerprints := range shi.tables {
 		targetChunk := GetChunk(fingerprint, i)
-		wg.Add(1)
 
-		go func() {
-			defer wg.Done()
-			found, exists := shi.BinarySearchChunk(i, targetChunk, fingerprints)
-			if exists {
-				shi.mu.Lock()
-				candidates = append(candidates, found)
-				shi.mu.Unlock()
-			}
-		}()
-	}
-
-	wg.Wait()
-
-	shi.mu.Lock()
-	defer shi.mu.Unlock()
-	for _, candidate := range candidates {
-		if AreFingerprintsSimilar(candidate, fingerprint, shi.hammingDistance) {
-			return true
+		found, exists := shi.BinarySearchChunk(i, targetChunk, fingerprints)
+		if exists {
+			candidates = append(candidates, found)
 		}
 	}
 
-	return false
+	for _, candidate := range candidates {
+		if AreFingerprintsSimilar(candidate, fingerprint, shi.hammingDistance) {
+			return true, candidate
+		}
+	}
+
+	return false, 0
 }
 
 func (shi *SimHashIndex) BinarySearchChunk(chunkNumber int, targetChunk uint64, fingerprints []uint64) (uint64, bool) {
-  if len(fingerprints) == 0 {
-    return 0, false
-  }
-	return shi._binarySearchChunk(chunkNumber, targetChunk, fingerprints, 0, len(fingerprints))
-}
+	var fingerprint uint64
 
-func (shi *SimHashIndex) _binarySearchChunk(chunkNumber int, targetChunk uint64, fingerprints []uint64, low, high int) (uint64, bool) {
-	if high-low == 0 {
-		fingerprint := fingerprints[0]
-		foundChunk := GetChunk(fingerprint, chunkNumber)
-
-		if foundChunk == targetChunk {
-			return fingerprint, true
-		}
-
-		return 0, false
-	} else if high-low < 0 {
+	if len(fingerprints) == 0 {
 		return 0, false
 	}
+	_, found := slices.BinarySearchFunc(fingerprints, targetChunk, func(e uint64, t uint64) int {
+		foundChunk := GetChunk(e, chunkNumber)
 
-	midIndex := (low + high) / 2
-	fingerprint := fingerprints[midIndex]
-	foundChunk := GetChunk(fingerprint, chunkNumber)
+		if targetChunk < foundChunk {
+			return -1
+		} else if targetChunk > foundChunk {
+			return 1
+		}
+		fingerprint = e
 
-	if targetChunk == foundChunk {
+		return 0
+	})
+
+	if found {
 		return fingerprint, true
-	} else if targetChunk < fingerprints[midIndex] {
-		return shi._binarySearchChunk(chunkNumber, targetChunk, fingerprints, low, midIndex)
-	} else if targetChunk > fingerprints[midIndex] {
-		return shi._binarySearchChunk(chunkNumber, targetChunk, fingerprints, midIndex, high)
 	}
 
 	return 0, false
 }
 
-func (shi *SimHashIndex) TryInsert(fingerprint uint64) bool {
-	shi.mu.Lock()
-	defer shi.mu.Unlock()
-
-	if shi._isDuplicate(fingerprint) {
-		return false
+func (shi *SimHashIndex) TryInsert(fingerprint uint64) (bool, uint64) {
+	if yes, other := shi._isDuplicate(fingerprint); yes {
+		return false, other
 	}
 
 	for i, fingerprints := range shi.tables {
@@ -144,7 +120,7 @@ func (shi *SimHashIndex) TryInsert(fingerprint uint64) bool {
 		})
 	}
 
-	return true
+	return true, 0
 }
 
 func GetChunk(fingerprint uint64, chunkNumber int) uint64 {

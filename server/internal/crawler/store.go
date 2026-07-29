@@ -105,10 +105,10 @@ func (ps *PageStore) flush(ctx context.Context) {
 				Valid: true,
 				Int64: BoolToInt64(sm.HasBeenCrawled),
 			},
-      ContentHash: sql.NullInt64{
-        Valid: true,
-        Int64:int64(sm.ContentHash),
-      },
+			ContentHash: sql.NullInt64{
+				Valid: true,
+				Int64: int64(sm.ContentHash),
+			},
 		})
 
 		if err != nil {
@@ -134,35 +134,60 @@ func (ps *PageStore) Add(ctx context.Context, sm Page) error {
 }
 
 func (ps *PageStore) Contains(ctx context.Context, url URL) (bool, error) {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-
 	exists, err := ps.queries.FindPage(ctx, url.String())
-
 	return exists != 0, err
 }
 
 func (ps *PageStore) Get(ctx context.Context, url URL) (*Page, error) {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-
 	page, err := ps.queries.GetPageInfo(ctx, url.String())
 
 	if err != nil {
 		return nil, err
 	}
 
-	siteInfo := &Page{
-		ContentHash: uint64(page.ContentHash.Int64),
-		Title:       page.Title.String,
-		Text:        page.Text.String,
-		Description: page.Description.String,
-		URL:         URL(page.Url),
-		CrawledAt:   page.CrawledAt.Time,
-		StatusCode:  int(page.StatusCode.Int64),
+	pageInfo := &Page{
+		ContentHash:    uint64(page.ContentHash.Int64),
+		Title:          page.Title.String,
+		Text:           page.Text.String,
+		Description:    page.Description.String,
+		URL:            URL(page.Url),
+		CrawledAt:      page.CrawledAt.Time,
+		StatusCode:     int(page.StatusCode.Int64),
+		HasBeenCrawled: page.HasBeenCrawled.Int64 == 1,
 	}
 
-	return siteInfo, nil
+	host, _ := URL(page.Url).GetHost()
+	pageInfo.Host = host
+	return pageInfo, nil
+}
+
+func (ps *PageStore) GetAll(ctx context.Context) ([]*Page, error) {
+	out := make([]*Page, 0)
+	res, err := ps.queries.GetAllPages(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	for _, page := range res {
+		pageInfo := &Page{
+			ContentHash:    uint64(page.ContentHash.Int64),
+			Title:          page.Title.String,
+			Text:           page.Text.String,
+			Description:    page.Description.String,
+			URL:            URL(page.Url),
+			CrawledAt:      page.CrawledAt.Time,
+			StatusCode:     int(page.StatusCode.Int64),
+			HasBeenCrawled: page.HasBeenCrawled.Int64 == 1,
+		}
+
+		host, _ := URL(page.Url).GetHost()
+		pageInfo.Host = host
+
+		out = append(out, pageInfo)
+	}
+
+	return out, nil
 }
 
 func BoolToInt64(b bool) int64 {

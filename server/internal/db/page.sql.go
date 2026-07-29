@@ -29,12 +29,12 @@ func (q *Queries) FindPage(ctx context.Context, url string) (int64, error) {
 	return column_1, err
 }
 
-const getAllpages = `-- name: GetAllpages :many
+const getAllPages = `-- name: GetAllPages :many
 SELECT url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled FROM pages WHERE has_been_crawled = TRUE
 `
 
-func (q *Queries) GetAllpages(ctx context.Context) ([]Page, error) {
-	rows, err := q.db.QueryContext(ctx, getAllpages)
+func (q *Queries) GetAllPages(ctx context.Context) ([]Page, error) {
+	rows, err := q.db.QueryContext(ctx, getAllPages)
 	if err != nil {
 		return nil, err
 	}
