@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/twitocode/sift/internal/app"
+	"go.uber.org/zap/zapcore"
 
 	pgxvec "github.com/pgvector/pgvector-go/pgx"
 )
@@ -28,7 +29,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 	defer cancel()
 
 	cfg := app.NewConfig(getenv)
-	logger := app.NewLogger(getenv)
+	logger := app.NewLogger(getenv, zapcore.DebugLevel)
 	defer func() { _ = logger.Sync() }()
 
 	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
