@@ -1,10 +1,10 @@
 package common
 
-func Map[T any](slice []T, f func(e T) bool) []T {
-	result := make([]T, 0, len(slice))
+func Map[T any, O any](slice []T, f func(e T) (O, bool)) []O {
+	result := make([]O, 0, len(slice))
 	for _, e := range slice {
-		if f(e) {
-			result = append(result, e)
+		if o, ok := f(e); ok {
+			result = append(result, o)
 		}
 	}
 
