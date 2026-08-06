@@ -91,12 +91,11 @@ func (shi *SimHashIndex) BinarySearchChunk(chunkNumber int, targetChunk uint64, 
 		foundChunk := GetChunk(e, chunkNumber)
 
 		if targetChunk < foundChunk {
-			return -1
-		} else if targetChunk > foundChunk {
 			return 1
+		} else if targetChunk > foundChunk {
+			return -1
 		}
 		fingerprint = e
-
 		return 0
 	})
 

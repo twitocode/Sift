@@ -114,7 +114,7 @@ func (sp *Spider) Walk(ctx context.Context) {
 			}()
 
 			if !success {
-				return
+				continue
 			}
 
 		}

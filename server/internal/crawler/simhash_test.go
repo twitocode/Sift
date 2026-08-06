@@ -12,7 +12,6 @@ func TestNewSimHashIndex(t *testing.T) {
 		got := NewSimHashIndex(3, true)
 
 		assert.Equal(t, 3, got.hammingDistance)
-		assert.Empty(t, got.candidates)
 		require.Len(t, got.tables, 4)
 		for i, table := range got.tables {
 			assert.NotEmpty(t, table, "tables[%d] should not be empty", i)
@@ -23,7 +22,6 @@ func TestNewSimHashIndex(t *testing.T) {
 		got := NewSimHashIndex(5, false)
 
 		assert.Equal(t, 5, got.hammingDistance)
-		assert.Empty(t, got.candidates)
 		require.Len(t, got.tables, 4)
 		for i, table := range got.tables {
 			assert.Empty(t, table, "tables[%d] should be empty", i)
@@ -32,7 +30,11 @@ func TestNewSimHashIndex(t *testing.T) {
 }
 
 func TestSimHashIndex_IsDuplicate(t *testing.T) {
-	shi := NewSimHashIndex(3, true)
+	shi := NewSimHashIndex(3, false)
+
+	base := uint64(0x1F3A9C2E7B105D48)
+	ok, _ := shi.TryInsert(base)
+	require.True(t, ok)
 
 	tests := []struct {
 		name        string
@@ -40,8 +42,8 @@ func TestSimHashIndex_IsDuplicate(t *testing.T) {
 		want        bool
 	}{
 		{
-			name:        "exact seeded fingerprint",
-			fingerprint: 0x1F3A9C2E7B105D48,
+			name:        "exact match after insert",
+			fingerprint: base,
 			want:        true,
 		},
 		{
@@ -58,72 +60,50 @@ func TestSimHashIndex_IsDuplicate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, shi.IsDuplicate(tt.fingerprint))
+			duplicate, _ := shi.IsDuplicate(tt.fingerprint)
+			assert.Equal(t, tt.want, duplicate)
 		})
 	}
+}
+
+func TestSimHashIndex_TryInsert(t *testing.T) {
+	shi := NewSimHashIndex(3, false)
+
+	ok, other := shi.TryInsert(0xABC)
+	require.True(t, ok)
+	assert.Equal(t, uint64(0), other)
+
+	ok, other = shi.TryInsert(0xABC)
+	assert.False(t, ok)
+	assert.Equal(t, uint64(0xABC), other)
 }
 
 func TestSimHashIndex_BinarySearchChunk(t *testing.T) {
-	shi := &SimHashIndex{candidates: make([]uint64, 0)}
-	fingerprints := []uint64{0x1, 0x10000, 0x10001}
+	shi := NewSimHashIndex(3, false)
+	// Sorted by chunk 0: 0x10000 (chunk 0), then 0x1 and 0x10001 (chunk 1).
+	fingerprints := []uint64{0x10000, 0x1, 0x10001}
 
 	got, found := shi.BinarySearchChunk(0, 1, fingerprints)
-	assert.Equal(t, uint64(0x1), got)
 	assert.True(t, found)
-	assert.NotEmpty(t, shi.candidates)
-}
+	assert.True(t, got == 0x1 || got == 0x10001)
 
-func TestSimHashIndex__binarySearchChunk(t *testing.T) {
-	tests := []struct {
-		name         string
-		chunkNumber  int
-		targetChunk  uint64
-		fingerprints []uint64
-		low          int
-		high         int
-		want         uint64
-		wantFound    bool
-	}{
-		{
-			name:         "invalid range",
-			chunkNumber:  0,
-			targetChunk:  1,
-			fingerprints: []uint64{0x1},
-			low:          1,
-			high:         0,
-			want:         0,
-			wantFound:    false,
-		},
-		{
-			name:         "single element match",
-			chunkNumber:  0,
-			targetChunk:  0x10,
-			fingerprints: []uint64{0x10},
-			low:          0,
-			high:         0,
-			want:         0x10,
-			wantFound:    true,
-		},
-		{
-			name:         "single element no match",
-			chunkNumber:  0,
-			targetChunk:  0x20,
-			fingerprints: []uint64{0x10},
-			low:          0,
-			high:         0,
-			want:         0,
-			wantFound:    false,
-		},
-	}
+	t.Run("empty fingerprints", func(t *testing.T) {
+		got, found := shi.BinarySearchChunk(0, 1, nil)
+		assert.False(t, found)
+		assert.Equal(t, uint64(0), got)
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			shi := &SimHashIndex{}
-			got, found := shi._binarySearchChunk(tt.chunkNumber, tt.targetChunk, tt.fingerprints, tt.low, tt.high)
-			assert.Equal(t, tt.want, got)
-			assert.Equal(t, tt.wantFound, found)
-		})
-	}
+	t.Run("single element match", func(t *testing.T) {
+		got, found := shi.BinarySearchChunk(0, 0x10, []uint64{0x10})
+		assert.True(t, found)
+		assert.Equal(t, uint64(0x10), got)
+	})
+
+	t.Run("single element no match", func(t *testing.T) {
+		got, found := shi.BinarySearchChunk(0, 0x20, []uint64{0x10})
+		assert.False(t, found)
+		assert.Equal(t, uint64(0), got)
+	})
 }
 
 func TestGetChunk(t *testing.T) {

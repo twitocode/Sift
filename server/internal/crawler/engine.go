@@ -58,7 +58,6 @@ func (e *Engine) Start() {
 	e.workerWg.Add(e.workers + linkWorkers + 1)
 
 	go e.store.RunTimer(ctx, &e.workerWg)
-
 	go e.Seed(ctx)
 
   //TODO: collect from db first
