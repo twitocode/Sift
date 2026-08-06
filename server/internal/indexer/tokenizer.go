@@ -23,10 +23,8 @@ func Normalize(tokens []string) {
 	for i, token := range tokens {
 		stemmed, err := snowball.Stem(token, "english", true)
 
-		if err != nil {
-			tokens[i] = ""
+		if err == nil {
+			tokens[i] = stemmed
 		}
-
-		tokens[i] = stemmed
 	}
 }

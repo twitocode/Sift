@@ -2,14 +2,15 @@ package indexer
 
 import (
 	"context"
+	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/crawler"
 	"go.uber.org/zap"
 )
-
 
 type Indexer struct {
 	log   *zap.Logger
@@ -27,37 +28,22 @@ func NewIndexer(log *zap.Logger, store *crawler.PageStore) *Indexer {
 }
 
 func (in *Indexer) Start(ctx context.Context) {
-  //TODO: make indexer run on a ticker (or cron job)
-  //TODO: add a vector store - calculate embeddings alongside invert index
+	in.log.Info("Started Indexing")
+	//TODO: make indexer run on a ticker (or cron job)
+	//TODO: add a vector store - calculate embeddings alongside invert index
 	pages, err := in.store.GetAll(ctx)
-
 	start := time.Now()
+
 	if err != nil {
 		in.log.Fatal("Aborted Indexing", zap.Error(err))
+		return
 	}
 
 	for _, page := range pages {
 		in.Index(ctx, page)
 	}
 
-	// i := 0
-	// in.index.Range(func(k string, v []Posting) bool {
-	//   if i == 100 {
-	//     return false
-	//   }
-
-	//   i++
-	//   j := 0
-	// 	fmt.Printf("%s: [%s]\n", k, strings.Join(common.Map(v, func(e Posting) (string, bool) {
-	//     if j == 6 {
-	//       return "", false
-	//     }
-
-	//     j++
-	// 		return e.DocID, true
-	// 	}), ", "))
-	// 	return true
-	// })
+	in.log.Info("Unique Tokens", zap.Int("count", len(in.index.Keys())))
 
 	elapsed := time.Since(start)
 	in.log.Info("Finished indexing", zap.Duration("elapsed", elapsed))
@@ -79,7 +65,6 @@ func (in *Indexer) Index(ctx context.Context, page *crawler.Page) {
 				DocID:        string(page.URL),
 				MatchesTitle: i >= titlesStartIndex,
 			}
-			continue
 		} else {
 			entry.Frequency += 1
 			if !entry.MatchesTitle {
@@ -100,4 +85,25 @@ func (in *Indexer) Index(ctx context.Context, page *crawler.Page) {
 		postings = append(postings, posting)
 		in.index.Set(token, postings)
 	}
+}
+
+func (in *Indexer) printResults() {
+	i := 0
+	in.index.Range(func(k string, v []Posting) bool {
+		if i == 100 {
+			return false
+		}
+
+		i++
+		j := 0
+		fmt.Printf("%s: [%s]\n", k, strings.Join(common.Map(v, func(e Posting) (string, bool) {
+			if j == 2 {
+				return "", false
+			}
+
+			j++
+			return e.DocID, true
+		}), ", "))
+		return true
+	})
 }
