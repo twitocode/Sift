@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/twitocode/sift/internal/common"
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
 )
@@ -12,14 +13,14 @@ import (
 type DialerContext func(ctx context.Context, network, addr string) (net.Conn, error)
 
 type DNSCache struct {
-	ips      *SafeMap[string, net.IP]
+	ips      *common.SafeMap[string, net.IP]
 	dnsGroup singleflight.Group
 
 	log *zap.Logger
 }
 
 func NewDNSCache(log *zap.Logger) *DNSCache {
-	return &DNSCache{ips: NewSafeMap[string, net.IP](), log: log}
+	return &DNSCache{ips: common.NewSafeMap[string, net.IP](), log: log}
 }
 
 func (dc *DNSCache) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -45,8 +46,8 @@ func (dc *DNSCache) DialContext(ctx context.Context, network, addr string) (net.
 func (dc *DNSCache) resolve(ctx context.Context, host string) (net.IP, error) {
 	v, err, shared := dc.dnsGroup.Do(host, func() (interface{}, error) {
 		resolver := &net.Resolver{
-      PreferGo: true,
-    }
+			PreferGo: true,
+		}
 		lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 

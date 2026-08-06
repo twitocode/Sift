@@ -5,15 +5,16 @@ import (
 	"errors"
 	"time"
 
+	"github.com/twitocode/sift/internal/common"
 	"go.uber.org/zap"
 )
 
 type FrontierStore struct {
-	bufferQueues *SafeMap[URL, *BQueue]
+	bufferQueues *common.SafeMap[URL, *BQueue]
 	readyQueue   chan Payload
-	dispatched   *SafeMap[URL, struct{}]
+	dispatched   *common.SafeMap[URL, struct{}]
 	bloomFilter  *BloomFilter
-	dnsCache *DNSCache
+	dnsCache     *DNSCache
 
 	workers int
 	log     *zap.Logger
@@ -21,9 +22,9 @@ type FrontierStore struct {
 
 func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, workerCount, maxPagesCrawled int) *FrontierStore {
 	return &FrontierStore{
-		bufferQueues: NewSafeMap[URL, *BQueue](),
+		bufferQueues: common.NewSafeMap[URL, *BQueue](),
 		readyQueue:   make(chan Payload, workerCount),
-		dispatched:   NewSafeMap[URL, struct{}](),
+		dispatched:   common.NewSafeMap[URL, struct{}](),
 		bloomFilter:  NewBloomFilter(float64(maxPagesCrawled*2), 0.01),
 		dnsCache:     dnsCache,
 		workers:      workerCount,
@@ -157,9 +158,9 @@ func (fs *FrontierStore) FindAvailableJob() (*Payload, error) {
 	fs.bufferQueues.Range(func(host URL, queue *BQueue) bool {
 		if queue.IsAvailable() {
 			url := queue.Dequeue()
-      if url == "" {
-        return true
-      }
+			if url == "" {
+				return true
+			}
 
 			job = &Payload{
 				url:           url,
@@ -215,4 +216,3 @@ func (fs *FrontierStore) FreeHosts() {
 		return true
 	})
 }
-

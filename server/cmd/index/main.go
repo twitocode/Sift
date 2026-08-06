@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"os"
 
 	"github.com/twitocode/sift/internal/app"
 	"github.com/twitocode/sift/internal/crawler"
+	"github.com/twitocode/sift/internal/indexer"
 	"go.uber.org/zap"
 
 	_ "modernc.org/sqlite"
@@ -23,8 +25,5 @@ func main() {
 	log.Info("Connected to Sqlite")
 
 	store := crawler.NewPageStore(sqliteDb, log)
-	crawler.NewEngine(log, store).Start()
-
-	// deduplicator := crawler.NewDeduplicator(store, log)
-	// deduplicator.Start(context.Background())
+	indexer.NewIndexer(log, store).Start(context.Background())
 }
