@@ -14,6 +14,7 @@ type FrontierStore struct {
 	readyQueue   chan Payload
 	dispatched   *common.SafeMap[URL, struct{}]
 	bloomFilter  *BloomFilter
+	crawledURLs  *common.SafeMap[URL, struct{}]
 	dnsCache     *DNSCache
 
 	workers int
@@ -25,6 +26,7 @@ func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, workerCount, maxPages
 		bufferQueues: common.NewSafeMap[URL, *BQueue](),
 		readyQueue:   make(chan Payload, workerCount),
 		dispatched:   common.NewSafeMap[URL, struct{}](),
+		crawledURLs:  common.NewSafeMap[URL, struct{}](),
 		bloomFilter:  NewBloomFilter(float64(maxPagesCrawled*2), 0.01),
 		dnsCache:     dnsCache,
 		workers:      workerCount,
@@ -72,7 +74,11 @@ func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *Payload) {
 }
 
 func (fs *FrontierStore) HasLinkBeenCrawled(link URL) bool {
-	return fs.bloomFilter.ProbablyContains(link)
+	if fs.bloomFilter.ProbablyContains(link) {
+    return fs.crawledURLs.Contains(link)
+  }
+
+  return false
 }
 
 func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
@@ -124,6 +130,7 @@ func (fs *FrontierStore) ProcessPage(ctx context.Context, page *Page) error {
 	}
 
 	fs.bloomFilter.Insert(page.URL)
+	fs.crawledURLs.Set(page.URL, struct{}{})
 	fs.dispatched.Delete(page.URL)
 
 	bQueue, exists := fs.bufferQueues.Get(page.Host)
@@ -199,7 +206,9 @@ func (fs *FrontierStore) IsLinkDispatched(link URL) bool {
 
 func (fs *FrontierStore) SanitizeURL(link URL) (URL, error) {
 	if fs.bloomFilter.ProbablyContains(link) {
-		return "", errors.New("Link already crawled")
+		if fs.crawledURLs.Contains(link) {
+			return "", errors.New("Link already crawled")
+		}
 	}
 
 	return link.normalizeString(), nil

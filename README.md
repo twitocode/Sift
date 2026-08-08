@@ -4,6 +4,8 @@ A simple, but complete search engine
 
 Goal: make a project on the larger side without AI writing any code
 
+AI is just used to explaining search engine concepts, as well as reviewing my code
+
 ## Challenges
 
 ### Crawling
@@ -30,11 +32,12 @@ when going through performance issues i noticed that i kept making goroutines wh
 
 As of July 22, 2026 the program can crawl 10,000 pages with 150 spiders crawling.
 
-
 major issue: my crawler does not handle js heavy websites
 
 decided to implement simhash from scratch for html deduplication. bitwise operations were different to wrap my head around. also little vs big endian
 
 implemented simhash and had to figure out a way to quickly check if a document is a duplicate within thousands of documents. Splitted fingerprints into chunks of bits and then i check against a table of those
 
-was originally going to make it so that it does html deduplication during crawling but that was causing issues, will now do it asynchronously 
+was originally going to make it so that it does html deduplication during crawling but that was causing issues, will now do it asynchronously
+
+implemented the indexer which works by using an inverted index to map tokens to Postings (doc id, token in title, token frequency)

@@ -19,7 +19,7 @@ type Engine struct {
 	maxPagesCrawled int
 	pagesCrawled    int
 	workers         int
-  blacklist map[string]struct{}
+	blacklist       map[string]struct{}
 
 	cfg      *common.Config
 	dnsCache *DNSCache
@@ -41,7 +41,7 @@ func NewEngine(log *zap.Logger, store *PageStore, cfg *common.Config) *Engine {
 		workers:         cfg.SpiderCount,
 		store:           store,
 		cfg:             cfg,
-    blacklist: GenerateBlacklistMap(DefaultBlacklistedDomains),
+		blacklist:       GenerateBlacklistMap(DefaultBlacklistedDomains),
 
 		frontier: NewFrontierStore(log, dnsCache, cfg.SpiderCount, cfg.CrawlCount),
 		dnsCache: dnsCache,
@@ -51,6 +51,7 @@ func NewEngine(log *zap.Logger, store *PageStore, cfg *common.Config) *Engine {
 
 func (e *Engine) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
+
 	startTime := time.Now()
 	ticker := time.NewTicker(time.Millisecond * 1000)
 	defer ticker.Stop()
@@ -93,20 +94,23 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 			if page == nil {
 				continue
 			}
-			// e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.String("url", page.URL.String()))
-			if e.pagesCrawled%250 == 0 {
-				e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.String("url", page.URL.String()))
+
+			domain, _ := page.URL.GetDomain()
+			if !IsDomainBlacklisted(domain, e.blacklist) {
+				e.pagesCrawled++
+
+				if e.pagesCrawled%250 == 0 {
+					e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.String("url", page.URL.String()))
+				}
+
+				e.store.Add(ctx, *page)
 			}
 
-      domain, _ := page.URL.GetDomain()
-      if !IsDomainBlacklisted(domain, e.blacklist) {
-
-        e.store.Add(ctx, *page)
-      }
-      
-      e.frontier.ProcessPage(ctx, page)
-
-
+			e.frontier.ProcessPage(ctx, page)
+			if e.pagesCrawled == e.maxPagesCrawled {
+				e.shutdown(cancel)
+				return
+			}
 
 			for _, link := range page.Links {
 				select {
@@ -116,12 +120,6 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 				}
 			}
 
-			if e.pagesCrawled == e.maxPagesCrawled {
-				e.shutdown(cancel)
-				return
-			}
-
-			e.pagesCrawled++
 		case payload := <-e.spiderFailChan:
 			e.frontier.HandleSpiderFail(payload)
 		}
