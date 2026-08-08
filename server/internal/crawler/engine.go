@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"slices"
 	"sync"
 	"time"
 
@@ -20,6 +19,7 @@ type Engine struct {
 	maxPagesCrawled int
 	pagesCrawled    int
 	workers         int
+  blacklist map[string]struct{}
 
 	cfg      *common.Config
 	dnsCache *DNSCache
@@ -41,6 +41,7 @@ func NewEngine(log *zap.Logger, store *PageStore, cfg *common.Config) *Engine {
 		workers:         cfg.SpiderCount,
 		store:           store,
 		cfg:             cfg,
+    blacklist: GenerateBlacklistMap(DefaultBlacklistedDomains),
 
 		frontier: NewFrontierStore(log, dnsCache, cfg.SpiderCount, cfg.CrawlCount),
 		dnsCache: dnsCache,
@@ -98,7 +99,7 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 			}
 
       domain, _ := page.URL.GetDomain()
-      if !slices.Contains(blacklistedDomains, domain) {
+      if !IsDomainBlacklisted(domain, e.blacklist) {
 
         e.store.Add(ctx, *page)
       }

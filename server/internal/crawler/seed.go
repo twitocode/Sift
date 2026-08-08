@@ -20,25 +20,115 @@ var seed = []URL{
 	"https://www.nytimes.com",
 }
 
-var blacklistedDomains = []string{
+var DefaultBlacklistedDomains = []string{
+	// --- Search Engines & Aggregators ---
+	"google.com",
+	"bing.com",
+	"yahoo.com",
+	"duckduckgo.com",
+	"baidu.com",
+	"yandex.com",
+	"ask.com",
+	"ecosia.org",
+
+	// --- Domain Parking & Ad Networks ---
+	"sedo.com",
+	"sedoparking.com",
+	"parkingcrew.net",
+	"bodis.com",
+	"above.com",
+	"hugedomains.com",
+	"godaddy.com",
+	"domainmarket.com",
+	"namejet.com",
+	"afternic.com",
+	"buydomains.com",
+	"dan.com",
+	"squadhelp.com",
+	"undev.com",
+	"uniregistry.com",
+	"zeroredirect1.com",
+	"popads.net",
+	"popcash.net",
+	"adsterra.com",
+
+	// --- Scrapers, Content Farms & Spam Aggregators ---
+	"geeksforgeeks.org", // Often heavily scraped/duplicated
+	"w3schools.com",
+	"pinterest.com", // Deep infinite loop / doorway page issues
+	"pinterest.ca",
+	"pinterest.co.uk",
+	"quora.com",
+	"slideshare.net",
+
+	// --- Free Subdomains & Dynamic DNS (High Abuse Potential) ---
+	"000webhostapp.com",
+	"ngrok.io",
+	"ngrok-free.app",
+	"loca.lt",
+	"serveo.net",
+	"pagefront.dev",
+	"herokuapp.com",
+	"vercel.app",  // Filter or evaluate carefully depending on use case
+	"netlify.app", // Filter or evaluate carefully depending on use case
+	"github.io",   // Filter or evaluate carefully depending on use case
+	"wordpress.com",
+	"blogspot.com",
+	"weebly.com",
+	"wixsite.com",
+	"webnode.com",
+	"jimdosite.com",
+	"site123.me",
+	"tumblr.com",
+	"neocities.org",
+	"duckdns.org",
+	"no-ip.com",
+	"ddns.net",
+	"zapto.org",
+	"hopto.org",
+
+	// --- URL Shorteners (Usually skipped during initial crawling) ---
+	"bit.ly",
+	"tinyurl.com",
+	"goo.gl",
+	"t.co",
+	"ow.ly",
+	"is.gd",
+	"buff.ly",
+	"adf.ly",
+	"bl.ink",
+	"rebrand.ly",
+	"cutt.ly",
+
+	// --- Known Malware, Phishing, & Spam TLD Aggregators ---
+	"bit.do",
+	"shorturl.at",
+	"rb.gy",
+
+	// --- Example / Test Domains (RFC 2606) ---
+	"example.com",
+	"example.net",
+	"example.org",
+	"test.com",
+	"invalid.local",
+	"localhost",
+
+	// --- Deep rabbit holes ---
 	"wikipedia.org",
+	"wikinews.org",
 }
 
-// "https://www.nytimes.com",
-// "https://www.github.com",
-// "https://www.stackoverflow.com",
-// "https://www.imdb.com",
-// "https://www.bloomberg.com",
-// "https://www.reuters.com",
-// "https://www.medium.com",
-// "https://www.archive.org",
-// "https://www.w3schools.com",
-// "https://www.nasa.gov",
-// "https://www.nationalgeographic.com",
-// "https://www.gutenberg.org",
-// "https://www.npr.org",
-// "https://www.smithsonianmag.com",
-// "https://www.loc.gov",
-// "https://www.sciencemag.org",
-// "https://www.nature.com",
-// "https://www.python.org"
+func GenerateBlacklistMap(blacklist []string) map[string]struct{} {
+	out := make(map[string]struct{})
+
+	for _, b := range blacklist {
+		out[b] = struct{}{}
+	}
+
+	return out
+}
+
+func IsDomainBlacklisted(domain string, blacklist map[string]struct{}) bool {
+	_, found := blacklist[domain]
+	return found
+}
