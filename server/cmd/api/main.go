@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,23 +12,19 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
 	"github.com/twitocode/sift/internal/app"
+	"github.com/twitocode/sift/internal/common"
 	"go.uber.org/zap/zapcore"
 
 	pgxvec "github.com/pgvector/pgvector-go/pgx"
 )
 
 func run(ctx context.Context, getenv func(string) string) error {
-	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("load .env: %w", err)
-	}
-
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	cfg := app.NewConfig(getenv)
-	logger := app.NewLogger(getenv, zapcore.DebugLevel)
+	cfg := common.NewConfig(getenv)
+	logger := common.NewLogger(getenv, zapcore.DebugLevel)
 	defer func() { _ = logger.Sync() }()
 
 	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)

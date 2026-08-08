@@ -9,10 +9,11 @@ import (
 	"github.com/go-chi/httprate"
 	"go.uber.org/zap"
 
+	"github.com/twitocode/sift/internal/common"
 	mw "github.com/twitocode/sift/internal/middleware"
 )
 
-func NewServer(cfg *Config, s *Services, log *zap.Logger) *chi.Mux {
+func NewServer(cfg *common.Config, s *Services, log *zap.Logger) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(mw.AttachLogger(log))

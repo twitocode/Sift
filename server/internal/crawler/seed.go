@@ -20,6 +20,10 @@ var seed = []URL{
 	"https://www.nytimes.com",
 }
 
+var blacklistedDomains = []string{
+	"wikipedia.org",
+}
+
 // "https://www.nytimes.com",
 // "https://www.github.com",
 // "https://www.stackoverflow.com",

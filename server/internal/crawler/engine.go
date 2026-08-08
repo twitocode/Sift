@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
+	"github.com/twitocode/sift/internal/common"
 	"go.uber.org/zap"
 )
 
@@ -19,6 +21,7 @@ type Engine struct {
 	pagesCrawled    int
 	workers         int
 
+	cfg      *common.Config
 	dnsCache *DNSCache
 	log      *zap.Logger
 	workerWg sync.WaitGroup
@@ -26,22 +29,20 @@ type Engine struct {
 	frontier *FrontierStore
 }
 
-func NewEngine(log *zap.Logger, store *PageStore) *Engine {
-	const workers = 150
-
+func NewEngine(log *zap.Logger, store *PageStore, cfg *common.Config) *Engine {
 	dnsCache := NewDNSCache(log)
-	maxPagesCrawled := 10_000
 
 	return &Engine{
 		pageReceiveChan: make(chan *Page, 256),
 		linkReceiveChan: make(chan URL, 2048),
-		spiderFailChan:  make(chan Payload, workers),
-		maxPagesCrawled: maxPagesCrawled,
+		spiderFailChan:  make(chan Payload, cfg.SpiderCount),
+		maxPagesCrawled: cfg.CrawlCount,
 		pagesCrawled:    1,
-		workers:         workers,
+		workers:         cfg.SpiderCount,
 		store:           store,
+		cfg:             cfg,
 
-		frontier: NewFrontierStore(log, dnsCache, workers, maxPagesCrawled),
+		frontier: NewFrontierStore(log, dnsCache, cfg.SpiderCount, cfg.CrawlCount),
 		dnsCache: dnsCache,
 		log:      log,
 	}
@@ -60,7 +61,7 @@ func (e *Engine) Start() {
 	go e.store.RunTimer(ctx, &e.workerWg)
 	go e.Seed(ctx)
 
-  //TODO: collect from db first
+	//TODO: collect from db first
 	go e.startLinkWorkers(ctx, linkWorkers)
 	go e.startSpiders(ctx, e.workers)
 	go e.loop(ctx, ticker, cancel)
@@ -96,11 +97,15 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 				e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.String("url", page.URL.String()))
 			}
 
-			if page.InEnglish {
-				e.store.Add(ctx, *page)
-			}
+      domain, _ := page.URL.GetDomain()
+      if !slices.Contains(blacklistedDomains, domain) {
 
-			e.frontier.ProcessPage(ctx, page)
+        e.store.Add(ctx, *page)
+      }
+      
+      e.frontier.ProcessPage(ctx, page)
+
+
 
 			for _, link := range page.Links {
 				select {

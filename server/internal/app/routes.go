@@ -9,7 +9,7 @@ import (
 	"github.com/twitocode/sift/internal/handlers"
 )
 
-func addRoutes(r *chi.Mux, cfg *Config, s *Services) {
+func addRoutes(r *chi.Mux, cfg *common.Config, s *Services) {
 	r.Get("/", func(w http.ResponseWriter, _ *http.Request) {
 		common.WriteJSON(w, http.StatusOK, "Sift API")
 	})

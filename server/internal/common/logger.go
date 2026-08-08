@@ -1,47 +1,13 @@
-package app
+package common
 
 import (
-	"fmt"
 	"os"
 	"strings"
 
-	"github.com/caarlos0/env/v11"
-	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 	"go.uber.org/zap/buffer"
 	"go.uber.org/zap/zapcore"
 )
-
-type Config struct {
-	Host                 string   `env:"HOST"`
-	Port                 string   `env:"PORT" envDefault:"8000"`
-	AppEnv               string   `env:"APP_ENV"`
-	DatabaseURL          string   `env:"DATABASE_URL"`
-	FrontendAppURL       string   `env:"FRONTEND_APP_URL"`
-	SecretKey            string   `env:"SECRET_KEY"`
-	InternalServiceToken string   `env:"INTERNAL_SERVICE_TOKEN"`
-	AllowedOrigins       []string `env:"ALLOWED_ORIGINS" envSeparator:","`
-	OpenRouterAPIKey     string   `env:"OPENROUTER_API_KEY"`
-}
-
-func NewConfig(_ func(string) string) *Config {
-	_ = godotenv.Load(".env")
-
-	cfg, err := env.ParseAs[Config]()
-	if err != nil {
-		panic(fmt.Errorf("parse environment config: %w", err))
-	}
-
-	if len(cfg.AllowedOrigins) == 0 {
-		if cfg.FrontendAppURL != "" {
-			cfg.AllowedOrigins = []string{cfg.FrontendAppURL}
-		} else {
-			cfg.AllowedOrigins = []string{"http://localhost:3000"}
-		}
-	}
-
-	return &cfg
-}
 
 func NewLogger(getenv func(string) string, level zapcore.Level) *zap.Logger {
 	if getenv("APP_ENV") == "production" {

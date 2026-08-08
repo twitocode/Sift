@@ -112,7 +112,7 @@ func (p *HTMLParser) getMeta(body []byte, url URL) ParserOutput {
 	readingTitle := false
 	insideBody := false
 
-	tagsToIgnore := []string{"script", "style", "header", "footer", "nav", "svg", "aside", "noscript", "iframe", "canvas", "embed"}
+	tagsToIgnore := []string{"script", "style", "header", "footer", "nav", "svg", "aside", "noscript", "iframe", "canvas", "embed", "form", "input", "select", "option", "label"}
 
 	//TODO: add advertisement detection
 Loop:
@@ -191,8 +191,11 @@ Loop:
 						//removes tab characters
 						chars = bytes.ReplaceAll(chars, []byte{'\t', '\n'}, nil)
 
-						buffer.Write(chars)
-						buffer.WriteByte(' ')
+						normalized := normalizeExtractedText(string(chars))
+						if normalized != "" {
+              normalized += " "
+							buffer.Write([]byte(normalized))
+						}
 					}
 				}
 			}
@@ -209,4 +212,8 @@ func getAttr(t html.Token, targetKey string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeExtractedText(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }

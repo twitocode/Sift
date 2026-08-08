@@ -9,6 +9,7 @@
       "type": "go",
       "request": "launch",
       "mode": "debug",
+      "cwd": "${workspaceFolder}/server",
       "program": "${workspaceFolder}/server/cmd/api/main.go"
     },
     {
@@ -16,6 +17,7 @@
       "type": "go",
       "request": "launch",
       "mode": "debug",
+      "cwd": "${workspaceFolder}/server",
       "program": "${workspaceFolder}/server/cmd/crawl/main.go"
     },
     {
@@ -23,6 +25,7 @@
       "type": "go",
       "request": "launch",
       "mode": "debug",
+      "cwd": "${workspaceFolder}/server",
       "program": "${workspaceFolder}/server/cmd/index/main.go"
     }
   ]

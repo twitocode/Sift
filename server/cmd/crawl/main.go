@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"os"
 
-	"github.com/twitocode/sift/internal/app"
+	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/crawler"
 	"go.uber.org/zap"
 
@@ -12,10 +12,10 @@ import (
 )
 
 func main() {
-	log := app.NewLogger(os.Getenv, zap.DebugLevel)
-	app.NewConfig(os.Getenv)
+	log := common.NewLogger(os.Getenv, zap.InfoLevel)
+	cfg := common.NewConfig(os.Getenv)
 
-	sqliteDb, err := sql.Open("sqlite", "../../db/sqlite/sift.db")
+	sqliteDb, err := sql.Open("sqlite", common.SQLitePath())
 
 	if err != nil {
 		log.Fatal("Sqlite connection error", zap.Error(err))
@@ -23,7 +23,7 @@ func main() {
 	log.Info("Connected to Sqlite")
 
 	store := crawler.NewPageStore(sqliteDb, log)
-	crawler.NewEngine(log, store).Start()
+	crawler.NewEngine(log, store, cfg).Start()
 
 	// deduplicator := crawler.NewDeduplicator(store, log)
 	// deduplicator.Start(context.Background())

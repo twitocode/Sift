@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"os"
 
-	"github.com/twitocode/sift/internal/app"
+	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/crawler"
 	"github.com/twitocode/sift/internal/indexer"
 	"go.uber.org/zap"
@@ -14,10 +14,10 @@ import (
 )
 
 func main() {
-	log := app.NewLogger(os.Getenv, zap.DebugLevel)
-	app.NewConfig(os.Getenv)
+	log := common.NewLogger(os.Getenv, zap.DebugLevel)
+	common.NewConfig(os.Getenv)
 
-	sqliteDb, err := sql.Open("sqlite", "../../db/sqlite/sift.db")
+	sqliteDb, err := sql.Open("sqlite", common.SQLitePath())
 
 	if err != nil {
 		log.Fatal("Sqlite connection error", zap.Error(err))
