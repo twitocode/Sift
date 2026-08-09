@@ -2,7 +2,6 @@ package crawler
 
 import (
 	"context"
-	"net/http"
 	"sync"
 	"time"
 
@@ -152,12 +151,10 @@ func (e *Engine) Seed(ctx context.Context) {
 
 func (e *Engine) startSpiders(ctx context.Context, workerCount int) {
 	e.log.Info("Starting up spiders")
+	client := newHttpClient(e.dnsCache.DialContext, workerCount)
+
 	go func() {
-		var client *http.Client
 		for w := 1; w <= workerCount; w++ {
-
-			client = newHttpClient(e.dnsCache.DialContext)
-
 			spider := NewSpider(
 				w,
 				e.log,

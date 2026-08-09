@@ -5,11 +5,17 @@ import (
 	"time"
 )
 
-func newHttpClient(dialerContext DialerContext) *http.Client {
+func newHttpClient(dialerContext DialerContext, spiderCount int) *http.Client {
+	maxIdle := spiderCount
+	if maxIdle < 64 {
+		maxIdle = 64
+	}
+
 	transport := &http.Transport{
 		DialContext:         dialerContext,
-		MaxIdleConns:        300,
-		MaxIdleConnsPerHost: 50,
+		MaxIdleConns:        maxIdle,
+		MaxIdleConnsPerHost: 2,
+		MaxConnsPerHost:     2,
 		IdleConnTimeout:     90 * time.Second,
 	}
 
