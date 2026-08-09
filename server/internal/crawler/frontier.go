@@ -162,8 +162,11 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
 			if bQueue.Enqueue(sanitizedURL, fs.cfg.MaxURLsPerHost) {
 				fs.pending.Add(1)
 			} else {
+				bQueue.SkippedCount.Add(1)
 				fs.metrics.URLsSkippedAtLimit.Add(1)
 			}
+
+			bQueue.DiscoveredCount.Add(1)
 		} else {
 			fs.metrics.URLsSkippedAtLimit.Add(1)
 		}
@@ -184,7 +187,7 @@ func (fs *FrontierStore) ProcessPage(ctx context.Context, page *Page) error {
 		fs.log.Fatal("Buffer queue should exist but doesn't", zap.String("host", page.Host.String()))
 	}
 
-	bQueue.Timeout(4000)
+	bQueue.Timeout()
 	allowedURLs := make([]URL, 0)
 
 	for _, link := range page.Links {

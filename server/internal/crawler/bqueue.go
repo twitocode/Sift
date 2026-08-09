@@ -4,14 +4,17 @@ import (
 	"errors"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type BQueue struct {
-	Host       URL
-	URLs       []URL
-	Locked     bool
-	StaleUntil time.Time
+	Host            URL
+	URLs            []URL
+	Locked          bool
+	StaleUntil      time.Time
+	DiscoveredCount atomic.Int64
+	SkippedCount    atomic.Int64
 
 	mu sync.Mutex
 }
@@ -60,10 +63,10 @@ func (b *BQueue) Enqueue(newUrl URL, max int) bool {
 	return true
 }
 
-func (b *BQueue) Timeout(milliseconds int) {
+func (b *BQueue) Timeout() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.StaleUntil = time.Now().Add(time.Millisecond * time.Duration(milliseconds))
+	b.StaleUntil = time.Now().Add( b.GetDelay())
 }
 
 func (b *BQueue) Lock() {
@@ -91,4 +94,24 @@ func (b *BQueue) CanDelete(now time.Time) bool {
 	return len(b.URLs) == 0 &&
 		!b.Locked &&
 		now.After(b.StaleUntil)
+}
+
+func (b *BQueue) GetDelay() time.Duration {
+	const baseDelay = 2
+	const growthFactor = 3
+	const maxDelay = 300
+
+	skipped := b.SkippedCount.Load()
+	discovered := b.DiscoveredCount.Load()
+
+  if discovered == 0 {
+    return time.Second * 4000
+  }
+
+	skipRatio := skipped / discovered
+
+	cooldown := baseDelay + (1 + skipRatio) ^ growthFactor
+	cooldown = max(min(cooldown, maxDelay), baseDelay)
+
+	return time.Second * time.Duration(cooldown)
 }
