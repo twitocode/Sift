@@ -4,3 +4,5 @@ tmp/
 db/sqlite/sift.db
 db/sqlite/sift.db-*
 cmd/crawl/__debug_bin*
+
+.DS_Store
