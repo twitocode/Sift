@@ -62,7 +62,7 @@ func (in *Indexer) Index(ctx context.Context, page *crawler.Page) {
 		if entry, ok := postingMap[token]; !ok {
 			postingMap[token] = Posting{
 				Frequency:    1,
-				DocID:        string(page.URL),
+				DocID:        string(page.FinalURL),
 				MatchesTitle: i >= titlesStartIndex,
 			}
 		} else {

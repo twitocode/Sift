@@ -11,8 +11,7 @@ import (
 type URL string
 
 func (u URL) normalizeString() URL {
-	s := strings.ToLower(string(u))
-	s = strings.Split(s, "?")[0]
+	s := strings.Split(u.String(), "?")[0]
 	s = strings.Split(s, "#")[0]
 
 	if len(s) > 0 && s[len(s)-1] == '/' {

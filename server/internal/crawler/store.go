@@ -81,7 +81,8 @@ func (ps *PageStore) flush(ctx context.Context, metrics *CrawlMetrics) {
 
 	for _, sm := range ps.buffer {
 		err := ps.queries.SetPageInfo(ctx, db.SetPageInfoParams{
-			Url: sm.URL.String(),
+			FinalUrl:   sm.FinalURL.String(),
+			RequestUrl: sm.RequestedURL.String(),
 			Title: sql.NullString{
 				String: sm.Title,
 				Valid:  true,
@@ -112,7 +113,7 @@ func (ps *PageStore) flush(ctx context.Context, metrics *CrawlMetrics) {
 				Int64: int64(sm.ContentHash),
 			},
 			FoundCanonical: sql.NullString{
-				Valid:  true,
+				Valid:  sm.FoundCanonical != "",
 				String: sm.FoundCanonical.String(),
 			},
 		})
@@ -152,18 +153,20 @@ func (ps *PageStore) Get(ctx context.Context, url URL) (*Page, error) {
 	}
 
 	pageInfo := &Page{
-		ID:             page.ID,
-		ContentHash:    uint64(page.ContentHash.Int64),
-		Title:          page.Title.String,
-		Text:           page.Text.String,
-		Description:    page.Description.String,
-		URL:            URL(page.Url),
-		CrawledAt:      page.CrawledAt.Time,
-		StatusCode:     int(page.StatusCode.Int64),
-		HasBeenCrawled: page.HasBeenCrawled.Int64 == 1,
+		ID:                page.ID,
+		ContentHash:       uint64(page.ContentHash.Int64),
+		Title:             page.Title.String,
+		Text:              page.Text.String,
+		Description:       page.Description.String,
+		FinalURL:          URL(page.FinalUrl),
+		CrawledAt:         page.CrawledAt.Time,
+		StatusCode:        int(page.StatusCode.Int64),
+		HasBeenCrawled:    page.HasBeenCrawled.Int64 == 1,
+		FoundCanonical:    URL(page.FoundCanonical.String),
+		ResolvedCanonical: page.ResolvedCanonical.Int64 == 1,
 	}
 
-	host, _ := URL(page.Url).GetHost()
+	host, _ := URL(page.FinalUrl).GetHost()
 	pageInfo.Host = host
 	return pageInfo, nil
 }
@@ -178,18 +181,20 @@ func (ps *PageStore) GetAll(ctx context.Context) ([]*Page, error) {
 
 	for _, page := range res {
 		pageInfo := &Page{
-			ID:             page.ID,
-			ContentHash:    uint64(page.ContentHash.Int64),
-			Title:          page.Title.String,
-			Text:           page.Text.String,
-			Description:    page.Description.String,
-			URL:            URL(page.Url),
-			CrawledAt:      page.CrawledAt.Time,
-			StatusCode:     int(page.StatusCode.Int64),
-			HasBeenCrawled: page.HasBeenCrawled.Int64 == 1,
+			ID:                page.ID,
+			ContentHash:       uint64(page.ContentHash.Int64),
+			Title:             page.Title.String,
+			Text:              page.Text.String,
+			Description:       page.Description.String,
+			FinalURL:          URL(page.FinalUrl),
+			CrawledAt:         page.CrawledAt.Time,
+			StatusCode:        int(page.StatusCode.Int64),
+			HasBeenCrawled:    page.HasBeenCrawled.Int64 == 1,
+			FoundCanonical:    URL(page.FoundCanonical.String),
+			ResolvedCanonical: page.ResolvedCanonical.Int64 == 1,
 		}
 
-		host, _ := URL(page.Url).GetHost()
+		host, _ := URL(page.FinalUrl).GetHost()
 		pageInfo.Host = host
 
 		out = append(out, pageInfo)
@@ -204,6 +209,7 @@ func (ps *PageStore) BatchAssignCanonical(ctx context.Context, canonicalId int, 
 			Valid: true,
 			Int64: int64(canonicalId),
 		},
+    
 		Ids: duplicates,
 	})
 
@@ -220,6 +226,70 @@ func (ps *PageStore) BeforeCrawl(ctx context.Context) {
 		ps.log.Fatal("Sqlite delete all error", zap.Error(err))
 	}
 	ps.log.Info("Successfully cleaned up frontier")
+}
+
+func (ps *PageStore) FindPossibleDuplicatePages(ctx context.Context) ([]*Page, error) {
+	out := make([]*Page, 0)
+	res, err := ps.queries.FindPossibleDuplicatePages(ctx)
+	if err != nil {
+		ps.log.Fatal("Sqlite query error", zap.Error(err))
+		return nil, err
+	}
+
+	for _, page := range res {
+		pageInfo := &Page{
+			ID:                page.ID,
+			ContentHash:       uint64(page.ContentHash.Int64),
+			Title:             page.Title.String,
+			Text:              page.Text.String,
+			Description:       page.Description.String,
+			FinalURL:          URL(page.FinalUrl),
+			CrawledAt:         page.CrawledAt.Time,
+			StatusCode:        int(page.StatusCode.Int64),
+			HasBeenCrawled:    page.HasBeenCrawled.Int64 == 1,
+			FoundCanonical:    URL(page.FoundCanonical.String),
+			ResolvedCanonical: page.ResolvedCanonical.Int64 == 1,
+		}
+
+		host, _ := URL(page.FinalUrl).GetHost()
+		pageInfo.Host = host
+
+		out = append(out, pageInfo)
+	}
+
+	return out, nil
+}
+
+func (ps *PageStore) FindCanonicDuplicatesPages(ctx context.Context) ([]*Page, error) {
+	out := make([]*Page, 0)
+	res, err := ps.queries.FindCanonicDuplicatesPages(ctx)
+	if err != nil {
+		ps.log.Fatal("Sqlite query error", zap.Error(err))
+		return nil, err
+	}
+
+	for _, page := range res {
+		pageInfo := &Page{
+			ID:                page.ID,
+			ContentHash:       uint64(page.ContentHash.Int64),
+			Title:             page.Title.String,
+			Text:              page.Text.String,
+			Description:       page.Description.String,
+			FinalURL:          URL(page.FinalUrl),
+			CrawledAt:         page.CrawledAt.Time,
+			StatusCode:        int(page.StatusCode.Int64),
+			HasBeenCrawled:    page.HasBeenCrawled.Int64 == 1,
+			FoundCanonical:    URL(page.FoundCanonical.String),
+			ResolvedCanonical: page.ResolvedCanonical.Int64 == 1,
+		}
+
+		host, _ := URL(page.FinalUrl).GetHost()
+		pageInfo.Host = host
+
+		out = append(out, pageInfo)
+	}
+
+	return out, nil
 }
 
 func BoolToInt64(b bool) int64 {

@@ -4,7 +4,8 @@ import "time"
 
 type Page struct {
 	ID             int64
-	URL            URL
+	FinalURL       URL
+	RequestedURL   URL
 	Host           URL
 	Title          string
 	Description    string
@@ -16,7 +17,8 @@ type Page struct {
 	ContentHash    uint64 //TODO: duplication detection, hash text form page (different urls same text)
 	HasBeenCrawled bool
 	DuplicateOf    int64
-  FoundCanonical URL
+	FoundCanonical URL
+  ResolvedCanonical bool
 }
 
 type Payload struct {

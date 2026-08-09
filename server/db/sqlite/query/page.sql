@@ -4,7 +4,8 @@ DELETE FROM pages;
 -- name: SetPageInfo :exec
 INSERT
 OR REPLACE INTO pages (
-  url,
+  final_url,
+  request_url,
   title,
   text,
   description,
@@ -15,7 +16,7 @@ OR REPLACE INTO pages (
   found_canonical
 )
 VALUES
-  (?, ?, ?, ?, ?, ?, ?, ?, ?);
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: FindPageByURL :one
 SELECT
@@ -25,7 +26,7 @@ SELECT
     FROM
       pages
     WHERE
-      url = ?
+      final_url = ?
   );
 
 -- name: FindPageByID :one
@@ -45,7 +46,7 @@ SELECT
 FROM
   pages
 WHERE
-  url = ?;
+  final_url = ?;
 
 -- name: GetPageInfoByID :one
 SELECT
@@ -63,6 +64,31 @@ FROM
 WHERE
   has_been_crawled = TRUE;
 
+-- name: FindCanonicDuplicatesPages :many
+SELECT
+  *
+FROM
+  pages
+WHERE
+  has_been_crawled = TRUE
+  AND resolved_canonical = FALSE
+  AND found_canonical IS NOT NULL
+  AND text IS NOT NULL
+  AND found_canonical <> final_url
+  AND duplicate_of IS NULL;
+
+-- name: FindPossibleDuplicatePages :many
+SELECT
+  *
+FROM
+  pages
+WHERE
+  has_been_crawled = TRUE
+  AND resolved_canonical = FALSE
+  AND found_canonical IS NULL
+  AND text IS NOT NULL
+  AND duplicate_of IS NULL;
+
 -- name: AssignCanonical :exec
 UPDATE pages
 SET
@@ -75,6 +101,7 @@ LIMIT
 -- name: BatchAssignCanonical :exec
 UPDATE pages
 SET
-  duplicate_of = ?
+  duplicate_of = ?,
+  resolved_canonical = TRUE
 WHERE
   id IN (sqlc.slice ('ids'));

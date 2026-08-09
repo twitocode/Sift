@@ -34,7 +34,8 @@ func (q *Queries) AssignCanonical(ctx context.Context, arg AssignCanonicalParams
 const batchAssignCanonical = `-- name: BatchAssignCanonical :exec
 UPDATE pages
 SET
-  duplicate_of = ?
+  duplicate_of = ?,
+  resolved_canonical = TRUE
 WHERE
   id IN (/*SLICE:ids*/?)
 `
@@ -69,6 +70,57 @@ func (q *Queries) DeleteAll(ctx context.Context) error {
 	return err
 }
 
+const findCanonicDuplicatesPages = `-- name: FindCanonicDuplicatesPages :many
+SELECT
+  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical
+FROM
+  pages
+WHERE
+  has_been_crawled = TRUE
+  AND resolved_canonical = FALSE
+  AND found_canonical IS NOT NULL
+  AND text IS NOT NULL
+  AND found_canonical <> final_url
+  AND duplicate_of IS NULL
+`
+
+func (q *Queries) FindCanonicDuplicatesPages(ctx context.Context) ([]Page, error) {
+	rows, err := q.db.QueryContext(ctx, findCanonicDuplicatesPages)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Page
+	for rows.Next() {
+		var i Page
+		if err := rows.Scan(
+			&i.ID,
+			&i.RequestUrl,
+			&i.Title,
+			&i.Description,
+			&i.Text,
+			&i.StatusCode,
+			&i.CrawledAt,
+			&i.ContentHash,
+			&i.HasBeenCrawled,
+			&i.DuplicateOf,
+			&i.FoundCanonical,
+			&i.FinalUrl,
+			&i.ResolvedCanonical,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const findPageByID = `-- name: FindPageByID :one
 SELECT
   EXISTS (
@@ -96,20 +148,70 @@ SELECT
     FROM
       pages
     WHERE
-      url = ?
+      final_url = ?
   )
 `
 
-func (q *Queries) FindPageByURL(ctx context.Context, url string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, findPageByURL, url)
+func (q *Queries) FindPageByURL(ctx context.Context, finalUrl string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, findPageByURL, finalUrl)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
 }
 
+const findPossibleDuplicatePages = `-- name: FindPossibleDuplicatePages :many
+SELECT
+  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical
+FROM
+  pages
+WHERE
+  has_been_crawled = TRUE
+  AND resolved_canonical = FALSE
+  AND found_canonical IS NULL
+  AND text IS NOT NULL
+  AND duplicate_of IS NULL
+`
+
+func (q *Queries) FindPossibleDuplicatePages(ctx context.Context) ([]Page, error) {
+	rows, err := q.db.QueryContext(ctx, findPossibleDuplicatePages)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Page
+	for rows.Next() {
+		var i Page
+		if err := rows.Scan(
+			&i.ID,
+			&i.RequestUrl,
+			&i.Title,
+			&i.Description,
+			&i.Text,
+			&i.StatusCode,
+			&i.CrawledAt,
+			&i.ContentHash,
+			&i.HasBeenCrawled,
+			&i.DuplicateOf,
+			&i.FoundCanonical,
+			&i.FinalUrl,
+			&i.ResolvedCanonical,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getAllPages = `-- name: GetAllPages :many
 SELECT
-  id, url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical
+  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical
 FROM
   pages
 WHERE
@@ -127,7 +229,7 @@ func (q *Queries) GetAllPages(ctx context.Context) ([]Page, error) {
 		var i Page
 		if err := rows.Scan(
 			&i.ID,
-			&i.Url,
+			&i.RequestUrl,
 			&i.Title,
 			&i.Description,
 			&i.Text,
@@ -137,6 +239,8 @@ func (q *Queries) GetAllPages(ctx context.Context) ([]Page, error) {
 			&i.HasBeenCrawled,
 			&i.DuplicateOf,
 			&i.FoundCanonical,
+			&i.FinalUrl,
+			&i.ResolvedCanonical,
 		); err != nil {
 			return nil, err
 		}
@@ -153,7 +257,7 @@ func (q *Queries) GetAllPages(ctx context.Context) ([]Page, error) {
 
 const getPageInfoByID = `-- name: GetPageInfoByID :one
 SELECT
-  id, url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical
+  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical
 FROM
   pages
 WHERE
@@ -165,7 +269,7 @@ func (q *Queries) GetPageInfoByID(ctx context.Context, id int64) (Page, error) {
 	var i Page
 	err := row.Scan(
 		&i.ID,
-		&i.Url,
+		&i.RequestUrl,
 		&i.Title,
 		&i.Description,
 		&i.Text,
@@ -175,25 +279,27 @@ func (q *Queries) GetPageInfoByID(ctx context.Context, id int64) (Page, error) {
 		&i.HasBeenCrawled,
 		&i.DuplicateOf,
 		&i.FoundCanonical,
+		&i.FinalUrl,
+		&i.ResolvedCanonical,
 	)
 	return i, err
 }
 
 const getPageInfoByURL = `-- name: GetPageInfoByURL :one
 SELECT
-  id, url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical
+  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical
 FROM
   pages
 WHERE
-  url = ?
+  final_url = ?
 `
 
-func (q *Queries) GetPageInfoByURL(ctx context.Context, url string) (Page, error) {
-	row := q.db.QueryRowContext(ctx, getPageInfoByURL, url)
+func (q *Queries) GetPageInfoByURL(ctx context.Context, finalUrl string) (Page, error) {
+	row := q.db.QueryRowContext(ctx, getPageInfoByURL, finalUrl)
 	var i Page
 	err := row.Scan(
 		&i.ID,
-		&i.Url,
+		&i.RequestUrl,
 		&i.Title,
 		&i.Description,
 		&i.Text,
@@ -203,6 +309,8 @@ func (q *Queries) GetPageInfoByURL(ctx context.Context, url string) (Page, error
 		&i.HasBeenCrawled,
 		&i.DuplicateOf,
 		&i.FoundCanonical,
+		&i.FinalUrl,
+		&i.ResolvedCanonical,
 	)
 	return i, err
 }
@@ -210,7 +318,8 @@ func (q *Queries) GetPageInfoByURL(ctx context.Context, url string) (Page, error
 const setPageInfo = `-- name: SetPageInfo :exec
 INSERT
 OR REPLACE INTO pages (
-  url,
+  final_url,
+  request_url,
   title,
   text,
   description,
@@ -221,11 +330,12 @@ OR REPLACE INTO pages (
   found_canonical
 )
 VALUES
-  (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type SetPageInfoParams struct {
-	Url            string
+	FinalUrl       string
+	RequestUrl     string
 	Title          sql.NullString
 	Text           sql.NullString
 	Description    sql.NullString
@@ -238,7 +348,8 @@ type SetPageInfoParams struct {
 
 func (q *Queries) SetPageInfo(ctx context.Context, arg SetPageInfoParams) error {
 	_, err := q.db.ExecContext(ctx, setPageInfo,
-		arg.Url,
+		arg.FinalUrl,
+		arg.RequestUrl,
 		arg.Title,
 		arg.Text,
 		arg.Description,

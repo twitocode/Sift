@@ -174,13 +174,13 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
 }
 
 func (fs *FrontierStore) ProcessPage(ctx context.Context, page *Page) error {
-	if !fs.IsLinkDispatched(page.URL) {
+	if !fs.IsLinkDispatched(page.RequestedURL) {
 		return errors.New("Link for some reason not available")
 	}
 
-	fs.bloomFilter.Insert(page.URL)
-	fs.crawledURLs.Set(page.URL, struct{}{})
-	fs.dispatched.Delete(page.URL)
+	fs.bloomFilter.Insert(page.FinalURL)
+	fs.crawledURLs.Set(page.FinalURL, struct{}{})
+	fs.dispatched.Delete(page.RequestedURL)
 
 	bQueue, exists := fs.bufferQueues.Get(page.Host)
 	if !exists {
@@ -193,7 +193,7 @@ func (fs *FrontierStore) ProcessPage(ctx context.Context, page *Page) error {
 	for _, link := range page.Links {
 		if fs.HasLinkBeenCrawled(link) {
 			fs.metrics.URLDuplicates.Add(1)
-			fs.log.Debug("Duplicate link crawled", zap.String("url", page.URL.String()))
+			fs.log.Debug("Duplicate link crawled", zap.String("url", page.FinalURL.String()))
 			continue
 		}
 

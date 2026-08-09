@@ -113,7 +113,7 @@ func (sp *Spider) Walk(ctx context.Context) {
 					}
 				} else {
 					page = &Page{
-						URL:            job.url,
+						FinalURL:            job.url,
 						Host:           job.host,
 						InEnglish:      false,
 						HasBeenCrawled: false,

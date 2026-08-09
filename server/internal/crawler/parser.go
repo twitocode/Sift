@@ -94,8 +94,10 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job Payload)
 	if output.description == output.title {
 		output.description = ""
 	}
+
 	page := &Page{
-		URL:            job.url,
+		FinalURL:       URL(res.Request.URL.String()),
+		RequestedURL:   job.url,
 		Host:           job.host,
 		Title:          output.title,
 		Description:    output.description,
@@ -107,7 +109,7 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job Payload)
 		HasBeenCrawled: output.hasBeenCrawled,
 		ContentHash:    CreateSimhashFingerprint(output.text),
 		DuplicateOf:    -1,
-		FoundCanonical: URL(output.foundCanonical),
+		FoundCanonical: URL(output.foundCanonical).normalizeString(),
 	}
 
 	p.metrics.PagesParsed.Add(1)

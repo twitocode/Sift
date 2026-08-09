@@ -14,15 +14,17 @@ type Link struct {
 }
 
 type Page struct {
-	ID             int64
-	Url            string
-	Title          sql.NullString
-	Description    sql.NullString
-	Text           sql.NullString
-	StatusCode     sql.NullInt64
-	CrawledAt      sql.NullTime
-	ContentHash    sql.NullInt64
-	HasBeenCrawled sql.NullInt64
-	DuplicateOf    sql.NullInt64
-	FoundCanonical sql.NullString
+	ID                int64
+	RequestUrl        string
+	Title             sql.NullString
+	Description       sql.NullString
+	Text              sql.NullString
+	StatusCode        sql.NullInt64
+	CrawledAt         sql.NullTime
+	ContentHash       sql.NullInt64
+	HasBeenCrawled    sql.NullInt64
+	DuplicateOf       sql.NullInt64
+	FoundCanonical    sql.NullString
+	FinalUrl          string
+	ResolvedCanonical sql.NullInt64
 }

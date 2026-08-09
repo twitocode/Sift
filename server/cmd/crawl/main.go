@@ -28,6 +28,6 @@ func main() {
 
 	crawler.NewEngine(log, store, cfg).Start()
 
-	// deduplicator := crawler.NewDeduplicator(store, log)
-	// deduplicator.Start(context.Background())
+	deduplicator := crawler.NewDeduplicator(store, log)
+	deduplicator.Start(context.Background())
 }
