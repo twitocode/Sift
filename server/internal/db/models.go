@@ -14,6 +14,7 @@ type Link struct {
 }
 
 type Page struct {
+	ID             int64
 	Url            string
 	Title          sql.NullString
 	Description    sql.NullString
@@ -22,4 +23,6 @@ type Page struct {
 	CrawledAt      sql.NullTime
 	ContentHash    sql.NullInt64
 	HasBeenCrawled sql.NullInt64
+	DuplicateOf    sql.NullInt64
+	FoundCanonical sql.NullString
 }

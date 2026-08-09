@@ -111,6 +111,10 @@ func (ps *PageStore) flush(ctx context.Context, metrics *CrawlMetrics) {
 				Valid: true,
 				Int64: int64(sm.ContentHash),
 			},
+			FoundCanonical: sql.NullString{
+				Valid:  true,
+				String: sm.FoundCanonical.String(),
+			},
 		})
 
 		if err != nil {
@@ -136,18 +140,19 @@ func (ps *PageStore) Add(ctx context.Context, sm Page) error {
 }
 
 func (ps *PageStore) Contains(ctx context.Context, url URL) (bool, error) {
-	exists, err := ps.queries.FindPage(ctx, url.String())
+	exists, err := ps.queries.FindPageByURL(ctx, url.String())
 	return exists != 0, err
 }
 
 func (ps *PageStore) Get(ctx context.Context, url URL) (*Page, error) {
-	page, err := ps.queries.GetPageInfo(ctx, url.String())
+	page, err := ps.queries.GetPageInfoByURL(ctx, url.String())
 
 	if err != nil {
 		return nil, err
 	}
 
 	pageInfo := &Page{
+		ID:             page.ID,
 		ContentHash:    uint64(page.ContentHash.Int64),
 		Title:          page.Title.String,
 		Text:           page.Text.String,
@@ -173,6 +178,7 @@ func (ps *PageStore) GetAll(ctx context.Context) ([]*Page, error) {
 
 	for _, page := range res {
 		pageInfo := &Page{
+			ID:             page.ID,
 			ContentHash:    uint64(page.ContentHash.Int64),
 			Title:          page.Title.String,
 			Text:           page.Text.String,
@@ -190,6 +196,30 @@ func (ps *PageStore) GetAll(ctx context.Context) ([]*Page, error) {
 	}
 
 	return out, nil
+}
+
+func (ps *PageStore) BatchAssignCanonical(ctx context.Context, canonicalId int, duplicates []int64) {
+	err := ps.queries.BatchAssignCanonical(ctx, db.BatchAssignCanonicalParams{
+		DuplicateOf: sql.NullInt64{
+			Valid: true,
+			Int64: int64(canonicalId),
+		},
+		Ids: duplicates,
+	})
+
+	if err != nil {
+		ps.log.Error("Sqlite canonical write error", zap.Error(err))
+		return
+	}
+}
+
+func (ps *PageStore) BeforeCrawl(ctx context.Context) {
+	ps.log.Info("Attempting to delete previous set")
+	err := ps.queries.DeleteAll(ctx)
+	if err != nil {
+		ps.log.Fatal("Sqlite delete all error", zap.Error(err))
+	}
+	ps.log.Info("Successfully cleaned up frontier")
 }
 
 func BoolToInt64(b bool) int64 {

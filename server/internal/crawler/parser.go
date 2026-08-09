@@ -33,6 +33,7 @@ type ParserOutput struct {
 	text           string
 	inEnglish      bool
 	hasBeenCrawled bool
+	foundCanonical string
 }
 
 func NewHTMLParser(log *zap.Logger, metrics *CrawlMetrics) *HTMLParser {
@@ -105,6 +106,8 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job Payload)
 		Links:          p.findLinks(doc, job.url),
 		HasBeenCrawled: output.hasBeenCrawled,
 		ContentHash:    CreateSimhashFingerprint(output.text),
+		DuplicateOf:    -1,
+		FoundCanonical: URL(output.foundCanonical),
 	}
 
 	p.metrics.PagesParsed.Add(1)
@@ -147,6 +150,7 @@ func (p *HTMLParser) getMeta(body []byte, url URL) ParserOutput {
 	var out ParserOutput = ParserOutput{
 		inEnglish:      true,
 		hasBeenCrawled: false,
+		foundCanonical: "",
 	}
 
 	skipTextContent := false
@@ -202,6 +206,16 @@ Loop:
 
 					if (name == "description" || property == "og:description") && content != "" {
 						out.description = content
+					}
+
+				}
+
+				if token.Data == "link" {
+					rel := getAttr(token, "rel")
+					href := getAttr(token, "href")
+
+					if (rel == "canonical") && href != "" {
+						out.foundCanonical = href
 					}
 				}
 			}

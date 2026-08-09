@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"os"
 
@@ -23,6 +24,8 @@ func main() {
 	log.Info("Connected to Sqlite")
 
 	store := crawler.NewPageStore(sqliteDb, log)
+	store.BeforeCrawl(context.Background())
+
 	crawler.NewEngine(log, store, cfg).Start()
 
 	// deduplicator := crawler.NewDeduplicator(store, log)

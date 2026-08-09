@@ -8,9 +8,87 @@ package db
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
-const findPage = `-- name: FindPage :one
+const assignCanonical = `-- name: AssignCanonical :exec
+UPDATE pages
+SET
+  duplicate_of = ?
+WHERE
+  id = ?
+LIMIT
+  1
+`
+
+type AssignCanonicalParams struct {
+	DuplicateOf sql.NullInt64
+	ID          int64
+}
+
+func (q *Queries) AssignCanonical(ctx context.Context, arg AssignCanonicalParams) error {
+	_, err := q.db.ExecContext(ctx, assignCanonical, arg.DuplicateOf, arg.ID)
+	return err
+}
+
+const batchAssignCanonical = `-- name: BatchAssignCanonical :exec
+UPDATE pages
+SET
+  duplicate_of = ?
+WHERE
+  id IN (/*SLICE:ids*/?)
+`
+
+type BatchAssignCanonicalParams struct {
+	DuplicateOf sql.NullInt64
+	Ids         []int64
+}
+
+func (q *Queries) BatchAssignCanonical(ctx context.Context, arg BatchAssignCanonicalParams) error {
+	query := batchAssignCanonical
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.DuplicateOf)
+	if len(arg.Ids) > 0 {
+		for _, v := range arg.Ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(arg.Ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	_, err := q.db.ExecContext(ctx, query, queryParams...)
+	return err
+}
+
+const deleteAll = `-- name: DeleteAll :exec
+DELETE FROM pages
+`
+
+func (q *Queries) DeleteAll(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteAll)
+	return err
+}
+
+const findPageByID = `-- name: FindPageByID :one
+SELECT
+  EXISTS (
+    SELECT
+      1
+    FROM
+      pages
+    WHERE
+      id = ?
+  )
+`
+
+func (q *Queries) FindPageByID(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, findPageByID, id)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const findPageByURL = `-- name: FindPageByURL :one
 SELECT
   EXISTS (
     SELECT
@@ -22,15 +100,20 @@ SELECT
   )
 `
 
-func (q *Queries) FindPage(ctx context.Context, url string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, findPage, url)
+func (q *Queries) FindPageByURL(ctx context.Context, url string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, findPageByURL, url)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
 }
 
 const getAllPages = `-- name: GetAllPages :many
-SELECT url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled FROM pages WHERE has_been_crawled = TRUE
+SELECT
+  id, url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical
+FROM
+  pages
+WHERE
+  has_been_crawled = TRUE
 `
 
 func (q *Queries) GetAllPages(ctx context.Context) ([]Page, error) {
@@ -43,6 +126,7 @@ func (q *Queries) GetAllPages(ctx context.Context) ([]Page, error) {
 	for rows.Next() {
 		var i Page
 		if err := rows.Scan(
+			&i.ID,
 			&i.Url,
 			&i.Title,
 			&i.Description,
@@ -51,6 +135,8 @@ func (q *Queries) GetAllPages(ctx context.Context) ([]Page, error) {
 			&i.CrawledAt,
 			&i.ContentHash,
 			&i.HasBeenCrawled,
+			&i.DuplicateOf,
+			&i.FoundCanonical,
 		); err != nil {
 			return nil, err
 		}
@@ -65,19 +151,20 @@ func (q *Queries) GetAllPages(ctx context.Context) ([]Page, error) {
 	return items, nil
 }
 
-const getPageInfo = `-- name: GetPageInfo :one
+const getPageInfoByID = `-- name: GetPageInfoByID :one
 SELECT
-  url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled
+  id, url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical
 FROM
   pages
 WHERE
-  url = ?
+  id = ?
 `
 
-func (q *Queries) GetPageInfo(ctx context.Context, url string) (Page, error) {
-	row := q.db.QueryRowContext(ctx, getPageInfo, url)
+func (q *Queries) GetPageInfoByID(ctx context.Context, id int64) (Page, error) {
+	row := q.db.QueryRowContext(ctx, getPageInfoByID, id)
 	var i Page
 	err := row.Scan(
+		&i.ID,
 		&i.Url,
 		&i.Title,
 		&i.Description,
@@ -86,6 +173,36 @@ func (q *Queries) GetPageInfo(ctx context.Context, url string) (Page, error) {
 		&i.CrawledAt,
 		&i.ContentHash,
 		&i.HasBeenCrawled,
+		&i.DuplicateOf,
+		&i.FoundCanonical,
+	)
+	return i, err
+}
+
+const getPageInfoByURL = `-- name: GetPageInfoByURL :one
+SELECT
+  id, url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical
+FROM
+  pages
+WHERE
+  url = ?
+`
+
+func (q *Queries) GetPageInfoByURL(ctx context.Context, url string) (Page, error) {
+	row := q.db.QueryRowContext(ctx, getPageInfoByURL, url)
+	var i Page
+	err := row.Scan(
+		&i.ID,
+		&i.Url,
+		&i.Title,
+		&i.Description,
+		&i.Text,
+		&i.StatusCode,
+		&i.CrawledAt,
+		&i.ContentHash,
+		&i.HasBeenCrawled,
+		&i.DuplicateOf,
+		&i.FoundCanonical,
 	)
 	return i, err
 }
@@ -100,10 +217,11 @@ OR REPLACE INTO pages (
   status_code,
   crawled_at,
   has_been_crawled,
-  content_hash
+  content_hash,
+  found_canonical
 )
 VALUES
-  (?, ?, ?, ?, ?, ?, ?, ?)
+  (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type SetPageInfoParams struct {
@@ -115,6 +233,7 @@ type SetPageInfoParams struct {
 	CrawledAt      sql.NullTime
 	HasBeenCrawled sql.NullInt64
 	ContentHash    sql.NullInt64
+	FoundCanonical sql.NullString
 }
 
 func (q *Queries) SetPageInfo(ctx context.Context, arg SetPageInfoParams) error {
@@ -127,6 +246,7 @@ func (q *Queries) SetPageInfo(ctx context.Context, arg SetPageInfoParams) error 
 		arg.CrawledAt,
 		arg.HasBeenCrawled,
 		arg.ContentHash,
+		arg.FoundCanonical,
 	)
 	return err
 }

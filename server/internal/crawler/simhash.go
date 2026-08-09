@@ -68,7 +68,7 @@ func (shi *SimHashIndex) _isDuplicate(fingerprint uint64) (bool, uint64) {
 
 		found, exists := shi.BinarySearchChunk(i, targetChunk, fingerprints)
 		if exists {
-			candidates = append(candidates, found)
+      slices.Concat(candidates, found)
 		}
 	}
 
@@ -81,29 +81,33 @@ func (shi *SimHashIndex) _isDuplicate(fingerprint uint64) (bool, uint64) {
 	return false, 0
 }
 
-func (shi *SimHashIndex) BinarySearchChunk(chunkNumber int, targetChunk uint64, fingerprints []uint64) (uint64, bool) {
-	var fingerprint uint64
+func (shi *SimHashIndex) BinarySearchChunk(chunkNumber int, targetChunk uint64, fingerprints []uint64) ([]uint64, bool) {
+	foundFingerprints := make([]uint64, 0)
 
 	if len(fingerprints) == 0 {
-		return 0, false
+		return []uint64{}, false
 	}
-	_, found := slices.BinarySearchFunc(fingerprints, targetChunk, func(e uint64, t uint64) int {
+	
+  slices.BinarySearchFunc(fingerprints, targetChunk, func(e uint64, t uint64) int {
 		foundChunk := GetChunk(e, chunkNumber)
+
+		if targetChunk == foundChunk {
+			foundFingerprints = append(foundFingerprints, e)
+		}
 
 		if targetChunk < foundChunk {
 			return 1
 		} else if targetChunk > foundChunk {
 			return -1
 		}
-		fingerprint = e
+
 		return 0
 	})
 
-	if found {
-		return fingerprint, true
-	}
-
-	return 0, false
+  if len(foundFingerprints) == 0 {
+    return foundFingerprints, false
+  }
+	return foundFingerprints, true
 }
 
 func (shi *SimHashIndex) TryInsert(fingerprint uint64) (bool, uint64) {
