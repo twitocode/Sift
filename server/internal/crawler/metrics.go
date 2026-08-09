@@ -10,14 +10,16 @@ import (
 )
 
 type CrawlMetrics struct {
-	URLsDiscovered atomic.Int64
-	URLsRejected   atomic.Int64
-	URLsFetched    atomic.Int64
+	URLsDiscovered     atomic.Int64
+	URLsRejected       atomic.Int64
+	URLsFetched        atomic.Int64
+	URLsSkippedAtLimit atomic.Int64
+  URLDuplicates atomic.Int64
 
 	FetchFailures       atomic.Int64
 	PagesParsed         atomic.Int64
 	PagesStored         atomic.Int64
-	PagesDuplicate      atomic.Int64
+	PagesDuplicates      atomic.Int64
 	BlacklistedWebsites atomic.Int64
 
 	BytesDownloaded atomic.Int64
@@ -60,28 +62,32 @@ func formatCrawlingSummary(cm *CrawlMetrics, duration time.Duration) string {
 			"  URLs Discovered:   %d\n"+
 			"  URLs Fetched:      %d\n"+
 			"  URLs Rejected:     %d\n"+
+			"  URLs Skipped at Limit:     %d\n"+
+			"  URL Duplicates:     %d\n"+
+			"  Blacklisted Websites:  %d\n"+
 			"  Fetch Failures:    %d\n"+
 			"  Total Requests:    %d\n"+
 			"  Pages Parsed:      %d\n"+
 			"  Pages Stored:      %d\n"+
 			"  Parsing Failures:  %d\n"+
 			"  Duplicated Pages:  %d\n"+
-			"  Blacklisted Websites:  %d\n"+
-			"  Gigabytes Downloaded:  %.2f MB\n"+
+			"  Gigabytes Downloaded:  %.2f GB\n"+
 			"  Still In Flight:   %d\n"+
 			"  DNS Failures:      %d\n"+
 			"  Time Elapsed:      %s\n",
 		cm.URLsDiscovered.Load(),
 		cm.URLsFetched.Load(),
 		cm.URLsRejected.Load(),
+		cm.URLsSkippedAtLimit.Load(),
+		cm.URLDuplicates.Load(),
+		cm.BlacklistedWebsites.Load(),
 		cm.FetchFailures.Load(),
 		cm.RequestCount.Load(),
 		cm.PagesParsed.Load(),
 		cm.PagesStored.Load(),
 		cm.ParsingFailures.Load(),
-		cm.PagesDuplicate.Load(),
-		cm.BlacklistedWebsites.Load(),
-		float64(cm.BytesDownloaded.Load())*10e-9,
+		cm.PagesDuplicates.Load(),
+		float64(cm.BytesDownloaded.Load()) * 1e-9,
 		cm.InFlight.Load(),
 		cm.DNSLookupFailures.Load(),
 		duration,

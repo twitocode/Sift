@@ -3,6 +3,7 @@ package crawler
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"slices"
@@ -21,6 +22,9 @@ type Parser interface {
 type HTMLParser struct {
 	log     *zap.Logger
 	metrics *CrawlMetrics
+
+	maxHTMLSize     int
+	maxLinksPerPage int
 }
 
 type ParserOutput struct {
@@ -32,15 +36,26 @@ type ParserOutput struct {
 }
 
 func NewHTMLParser(log *zap.Logger, metrics *CrawlMetrics) *HTMLParser {
-
-	return &HTMLParser{log: log, metrics: metrics}
+	return &HTMLParser{
+		log:             log,
+		metrics:         metrics,
+		maxHTMLSize:     10 * 1024 * 1024, // 10 MB of data,
+		maxLinksPerPage: 500,
+	}
 }
 
 func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job Payload) (*Page, error) {
+
 	htmlBytes, _ := io.ReadAll(res.Body)
 	parsedHTML, err := html.Parse(bytes.NewReader(htmlBytes))
 	p.metrics.BytesDownloaded.Add(int64(len(htmlBytes)))
-  
+
+	if len(htmlBytes) > p.maxHTMLSize {
+		p.log.Debug("Page Too Large", zap.String("url", job.url.String()))
+
+		return nil, fmt.Errorf("HTML requested exceeds %d Bytes", p.maxHTMLSize)
+	}
+
 	if err != nil {
 		if ctx.Err() == nil {
 			p.metrics.ParsingFailures.Add(1)
@@ -85,6 +100,7 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job Payload)
 func (p *HTMLParser) findLinks(doc *goquery.Document, pageURL URL) []URL {
 	var foundUrls []URL = make([]URL, 0)
 
+  reachedMax := false
 	doc.Find("a").Each(func(i int, s *goquery.Selection) {
 		href, exists := s.Attr("href")
 		if !exists || href == "" {
@@ -96,6 +112,13 @@ func (p *HTMLParser) findLinks(doc *goquery.Document, pageURL URL) []URL {
 			return
 		}
 
+		if len(foundUrls) > p.maxLinksPerPage {
+      if !reachedMax {
+        p.log.Debug("Reached Max Links", zap.String("url", pageURL.String()))
+        reachedMax = true
+      }
+			return
+		}
 		foundUrls = append(foundUrls, resolved)
 	})
 

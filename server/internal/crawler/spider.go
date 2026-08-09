@@ -106,7 +106,7 @@ func (sp *Spider) Walk(ctx context.Context) {
 
 					if err != nil {
 						if ctx.Err() == nil {
-							sp.log.Error("Goquery error", zap.Error(err), zap.String("url", job.url.String()))
+							sp.log.Error("Parser error", zap.Error(err), zap.String("url", job.url.String()))
 						}
 
 						return false

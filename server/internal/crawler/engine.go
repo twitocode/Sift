@@ -17,9 +17,9 @@ type Engine struct {
 	spiderFailChan  chan Payload
 
 	maxPagesCrawled int
-	pagesCrawled    int
-	workers         int
-	blacklist       map[string]struct{}
+
+	pagesCrawled int
+	workers      int
 
 	metrics  *CrawlMetrics
 	cfg      *common.Config
@@ -35,7 +35,7 @@ func NewEngine(log *zap.Logger, store *PageStore, cfg *common.Config) *Engine {
 	dnsCache := NewDNSCache(log, metrics)
 
 	return &Engine{
-		pageReceiveChan: make(chan *Page, 256),
+		pageReceiveChan: make(chan *Page, int(float32(cfg.SpiderCount)*1.5)),
 		linkReceiveChan: make(chan URL, 2048),
 		spiderFailChan:  make(chan Payload, cfg.SpiderCount),
 		maxPagesCrawled: cfg.CrawlCount,
@@ -43,12 +43,10 @@ func NewEngine(log *zap.Logger, store *PageStore, cfg *common.Config) *Engine {
 		workers:         cfg.SpiderCount,
 		store:           store,
 		cfg:             cfg,
-		blacklist:       GenerateBlacklistMap(DefaultBlacklistedDomains),
-
-		frontier: NewFrontierStore(log, dnsCache, cfg.SpiderCount, cfg.CrawlCount, metrics),
-		metrics:  metrics,
-		dnsCache: dnsCache,
-		log:      log,
+		frontier:        NewFrontierStore(log, dnsCache, cfg, metrics),
+		metrics:         metrics,
+		dnsCache:        dnsCache,
+		log:             log,
 	}
 }
 
@@ -96,19 +94,13 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 			if page == nil {
 				continue
 			}
+			e.pagesCrawled++
 
-			domain, _ := page.URL.GetDomain()
-			if !IsDomainBlacklisted(domain, e.blacklist) {
-				e.pagesCrawled++
-
-				if e.pagesCrawled%250 == 0 {
-					e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled))
-				}
-
-				e.store.Add(ctx, *page)
-			} else {
-				e.metrics.BlacklistedWebsites.Add(1)
+			if e.pagesCrawled%250 == 0 {
+				e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.Int("hosts tracked", e.frontier.GetBufferCount()))
 			}
+
+			e.store.Add(ctx, *page)
 
 			e.frontier.ProcessPage(ctx, page)
 			if e.pagesCrawled == e.maxPagesCrawled {
