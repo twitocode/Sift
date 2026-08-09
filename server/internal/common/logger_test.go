@@ -30,3 +30,19 @@ func TestDevelopmentEncoderColorsTypedFields(t *testing.T) {
 		t.Fatalf("expected integer field to be colored, got %q", logOutput)
 	}
 }
+
+func TestDevelopmentEncoderPreservesMultilineMessages(t *testing.T) {
+	var output bytes.Buffer
+	core := zapcore.NewCore(
+		newDevelopmentEncoder(),
+		zapcore.AddSync(&output),
+		zapcore.DebugLevel,
+	)
+
+	zap.New(core).Info("Crawling Summary\n  URLs Discovered:   500\n  Pages Stored:      498")
+
+	logOutput := output.String()
+	if !strings.Contains(logOutput, "Crawling Summary\n  URLs Discovered:   500\n  Pages Stored:      498") {
+		t.Fatalf("expected multiline message to be preserved, got %q", logOutput)
+	}
+}

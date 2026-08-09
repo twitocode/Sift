@@ -19,7 +19,8 @@ type Parser interface {
 }
 
 type HTMLParser struct {
-	log *zap.Logger
+	log     *zap.Logger
+	metrics *CrawlMetrics
 }
 
 type ParserOutput struct {
@@ -30,17 +31,19 @@ type ParserOutput struct {
 	hasBeenCrawled bool
 }
 
-func NewHTMLParser(log *zap.Logger) *HTMLParser {
+func NewHTMLParser(log *zap.Logger, metrics *CrawlMetrics) *HTMLParser {
 
-	return &HTMLParser{log: log}
+	return &HTMLParser{log: log, metrics: metrics}
 }
 
 func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job Payload) (*Page, error) {
 	htmlBytes, _ := io.ReadAll(res.Body)
 	parsedHTML, err := html.Parse(bytes.NewReader(htmlBytes))
-
+	p.metrics.BytesDownloaded.Add(int64(len(htmlBytes)))
+  
 	if err != nil {
 		if ctx.Err() == nil {
+			p.metrics.ParsingFailures.Add(1)
 			p.log.Error("HTML parsing error", zap.Error(err), zap.String("url", job.url.String()))
 		}
 		return nil, err
@@ -75,6 +78,7 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job Payload)
 		ContentHash:    CreateSimhashFingerprint(output.text),
 	}
 
+	p.metrics.PagesParsed.Add(1)
 	return page, nil
 }
 
@@ -193,7 +197,7 @@ Loop:
 
 						normalized := normalizeExtractedText(string(chars))
 						if normalized != "" {
-              normalized += " "
+							normalized += " "
 							buffer.Write([]byte(normalized))
 						}
 					}

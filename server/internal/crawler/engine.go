@@ -21,6 +21,7 @@ type Engine struct {
 	workers         int
 	blacklist       map[string]struct{}
 
+	metrics  *CrawlMetrics
 	cfg      *common.Config
 	dnsCache *DNSCache
 	log      *zap.Logger
@@ -30,20 +31,22 @@ type Engine struct {
 }
 
 func NewEngine(log *zap.Logger, store *PageStore, cfg *common.Config) *Engine {
-	dnsCache := NewDNSCache(log)
+	metrics := NewCrawlMetrics(log)
+	dnsCache := NewDNSCache(log, metrics)
 
 	return &Engine{
 		pageReceiveChan: make(chan *Page, 256),
 		linkReceiveChan: make(chan URL, 2048),
 		spiderFailChan:  make(chan Payload, cfg.SpiderCount),
 		maxPagesCrawled: cfg.CrawlCount,
-		pagesCrawled:    1,
+		pagesCrawled:    0,
 		workers:         cfg.SpiderCount,
 		store:           store,
 		cfg:             cfg,
 		blacklist:       GenerateBlacklistMap(DefaultBlacklistedDomains),
 
-		frontier: NewFrontierStore(log, dnsCache, cfg.SpiderCount, cfg.CrawlCount),
+		frontier: NewFrontierStore(log, dnsCache, cfg.SpiderCount, cfg.CrawlCount, metrics),
+		metrics:  metrics,
 		dnsCache: dnsCache,
 		log:      log,
 	}
@@ -60,7 +63,7 @@ func (e *Engine) Start() {
 	// +1 from store
 	e.workerWg.Add(e.workers + linkWorkers + 1)
 
-	go e.store.RunTimer(ctx, &e.workerWg)
+	go e.store.RunTimer(ctx, &e.workerWg, e.metrics)
 	go e.Seed(ctx)
 
 	//TODO: collect from db first
@@ -69,8 +72,7 @@ func (e *Engine) Start() {
 	go e.loop(ctx, ticker, cancel)
 
 	e.workerWg.Wait()
-
-	e.log.Info("Finished Crawling", zap.Int("count", e.pagesCrawled), zap.Duration("elapsed", time.Since(startTime)))
+	e.metrics.PrintSummary(time.Since(startTime))
 }
 
 func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.CancelFunc) {
@@ -100,10 +102,12 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 				e.pagesCrawled++
 
 				if e.pagesCrawled%250 == 0 {
-					e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.String("url", page.URL.String()))
+					e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled))
 				}
 
 				e.store.Add(ctx, *page)
+			} else {
+				e.metrics.BlacklistedWebsites.Add(1)
 			}
 
 			e.frontier.ProcessPage(ctx, page)
@@ -117,6 +121,7 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 				case <-ctx.Done():
 					return
 				case e.linkReceiveChan <- link:
+					e.metrics.URLsDiscovered.Add(1)
 				}
 			}
 
@@ -149,6 +154,7 @@ func (e *Engine) startSpiders(ctx context.Context, workerCount int) {
 				e.pageReceiveChan,
 				e.spiderFailChan,
 				e.dnsCache.DialContext,
+				e.metrics,
 			)
 
 			go func() {

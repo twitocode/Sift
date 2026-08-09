@@ -16,12 +16,13 @@ type FrontierStore struct {
 	bloomFilter  *BloomFilter
 	crawledURLs  *common.SafeMap[URL, struct{}]
 	dnsCache     *DNSCache
+	metrics      *CrawlMetrics
 
 	workers int
 	log     *zap.Logger
 }
 
-func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, workerCount, maxPagesCrawled int) *FrontierStore {
+func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, workerCount, maxPagesCrawled int, metrics *CrawlMetrics) *FrontierStore {
 	return &FrontierStore{
 		bufferQueues: common.NewSafeMap[URL, *BQueue](),
 		readyQueue:   make(chan Payload, workerCount),
@@ -31,6 +32,7 @@ func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, workerCount, maxPages
 		dnsCache:     dnsCache,
 		workers:      workerCount,
 		log:          log,
+		metrics:      metrics,
 	}
 }
 
@@ -75,16 +77,18 @@ func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *Payload) {
 
 func (fs *FrontierStore) HasLinkBeenCrawled(link URL) bool {
 	if fs.bloomFilter.ProbablyContains(link) {
-    return fs.crawledURLs.Contains(link)
-  }
+		return fs.crawledURLs.Contains(link)
+	}
 
-  return false
+	return false
 }
 
 func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
 	sanitizedURL, err := fs.SanitizeURL(link)
 	if err != nil {
-		fs.log.Warn("Website not allowed", zap.String("url", sanitizedURL.String()))
+		fs.log.Debug("Website not allowed", zap.String("url", link.String()))
+
+		fs.metrics.URLsRejected.Add(1)
 		return
 	}
 
@@ -156,6 +160,7 @@ func (fs *FrontierStore) ProcessPage(ctx context.Context, page *Page) error {
 
 func (fs *FrontierStore) Shutdown() {
 	//close(fs.readyQueue)
+
 }
 
 // used for timer

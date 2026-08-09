@@ -17,12 +17,10 @@ type BQueue struct {
 }
 
 func (b *BQueue) IsAvailable() bool {
-  b.mu.Lock()
-  defer b.mu.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	return !b.Locked && time.Now().After(b.StaleUntil)
 }
-
-
 
 func (b *BQueue) Dequeue() URL {
 	b.mu.Lock()

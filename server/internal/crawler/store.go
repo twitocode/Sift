@@ -32,14 +32,14 @@ func NewPageStore(sqliteDb *sql.DB, log *zap.Logger) *PageStore {
 	}
 }
 
-func (ps *PageStore) RunTimer(ctx context.Context, wg *sync.WaitGroup) {
+func (ps *PageStore) RunTimer(ctx context.Context, wg *sync.WaitGroup, metrics *CrawlMetrics) {
 	ticker := time.NewTicker(time.Second * 4)
 	defer ticker.Stop()
 
 	runFlush := func() {
 		newCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 		defer cancel()
-		ps.flush(newCtx)
+		ps.flush(newCtx, metrics)
 	}
 
 	drain := func() {
@@ -76,7 +76,9 @@ func (ps *PageStore) RunTimer(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-func (ps *PageStore) flush(ctx context.Context) {
+func (ps *PageStore) flush(ctx context.Context, metrics *CrawlMetrics) {
+	metrics.PagesStored.Add(int64(len(ps.buffer)))
+
 	for _, sm := range ps.buffer {
 		err := ps.queries.SetPageInfo(ctx, db.SetPageInfoParams{
 			Url: sm.URL.String(),
