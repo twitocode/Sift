@@ -3,6 +3,7 @@ package crawler
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"github.com/twitocode/sift/internal/common"
@@ -22,6 +23,14 @@ type FrontierStore struct {
 	blacklist map[string]struct{}
 	workers   int
 	log       *zap.Logger
+
+	pending atomic.Int32
+}
+
+type FrontierStats struct {
+	HostQueues   int
+	PendingURLs  int
+	LargestQueue int
 }
 
 func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, cfg *common.Config, metrics *CrawlMetrics) *FrontierStore {
@@ -41,6 +50,23 @@ func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, cfg *common.Config, m
 	}
 }
 
+func (fs *FrontierStore) Stats() FrontierStats {
+	stats := FrontierStats{}
+
+	fs.bufferQueues.Range(func(_ URL, queue *BQueue) bool {
+		stats.HostQueues++
+		pending := queue.Len()
+		stats.PendingURLs += pending
+		if pending > stats.LargestQueue {
+			stats.LargestQueue = pending
+		}
+
+		return true
+	})
+
+	return stats
+}
+
 func (fs *FrontierStore) AddUrl(ctx context.Context, rawUrl URL) {
 	hostname, err := rawUrl.GetHost()
 
@@ -52,7 +78,7 @@ func (fs *FrontierStore) AddUrl(ctx context.Context, rawUrl URL) {
 	domain, _ := rawUrl.GetDomain()
 	if IsDomainBlacklisted(domain, fs.blacklist) {
 		fs.metrics.BlacklistedWebsites.Add(1)
-    return
+		return
 	}
 
 	if !fs.bufferQueues.Contains(hostname) && fs.bufferQueues.Length() < fs.cfg.MaxHostQueues {
@@ -130,8 +156,15 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
 		}
 		return
 	} else {
-		//fs.log.Debug("Adding back to buffer", zap.String("host", hostname.String()), zap.String("url", link.String()))
-		if !bQueue.Enqueue(sanitizedURL, fs.cfg.MaxURLsPerHost) {
+
+		//TODO: might want to remove per host
+		if fs.pending.Load() < int32(fs.cfg.MaxPendingURLs) {
+			if bQueue.Enqueue(sanitizedURL, fs.cfg.MaxURLsPerHost) {
+				fs.pending.Add(1)
+			} else {
+				fs.metrics.URLsSkippedAtLimit.Add(1)
+			}
+		} else {
 			fs.metrics.URLsSkippedAtLimit.Add(1)
 		}
 	}
@@ -170,34 +203,39 @@ func (fs *FrontierStore) ProcessPage(ctx context.Context, page *Page) error {
 
 func (fs *FrontierStore) Shutdown() {
 	//close(fs.readyQueue)
-
 }
 
 // used for timer
-func (fs *FrontierStore) FindAvailableJob() (*Payload, error) {
-	var job *Payload
+func (fs *FrontierStore) FindAvailableJobs() ([]Payload, error) {
+	jobs := make([]Payload, 0)
+	i := 0
 
 	fs.bufferQueues.Range(func(host URL, queue *BQueue) bool {
+		availableSlots := cap(fs.readyQueue) - len(fs.readyQueue)
+		if i >= availableSlots {
+			return false
+		}
 		if queue.IsAvailable() {
+
 			url := queue.Dequeue()
 			if url == "" {
 				return true
 			}
 
-			job = &Payload{
+			jobs = append(jobs, Payload{
 				url:           url,
 				host:          host,
 				dialerContext: fs.dnsCache.DialContext,
-			}
-
+			})
+			fs.pending.Add(-1)
+			i++
 			queue.Lock()
-			return false
 		}
 
 		return true
 	})
 
-	return job, nil
+	return jobs, nil
 }
 
 func (fs *FrontierStore) HandleSpiderFail(payload Payload) {

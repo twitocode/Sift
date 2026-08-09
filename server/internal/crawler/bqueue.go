@@ -22,6 +22,13 @@ func (b *BQueue) IsAvailable() bool {
 	return !b.Locked && time.Now().After(b.StaleUntil)
 }
 
+func (b *BQueue) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return len(b.URLs)
+}
+
 func (b *BQueue) Dequeue() URL {
 	b.mu.Lock()
 	defer b.mu.Unlock()

@@ -41,3 +41,5 @@ implemented simhash and had to figure out a way to quickly check if a document i
 was originally going to make it so that it does html deduplication during crawling but that was causing issues, will now do it asynchronously
 
 implemented the indexer which works by using an inverted index to map tokens to Postings (doc id, token in title, token frequency)
+
+Learned about the existence of atomic primitives in go

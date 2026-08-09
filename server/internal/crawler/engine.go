@@ -2,7 +2,6 @@ package crawler
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -28,6 +27,9 @@ type Engine struct {
 	workerWg sync.WaitGroup
 	store    *PageStore
 	frontier *FrontierStore
+
+	crawlStartedAt  time.Time
+	lastMilestoneAt time.Time
 }
 
 func NewEngine(log *zap.Logger, store *PageStore, cfg *common.Config) *Engine {
@@ -54,6 +56,8 @@ func (e *Engine) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	startTime := time.Now()
+	e.crawlStartedAt = startTime
+	e.lastMilestoneAt = startTime
 	ticker := time.NewTicker(time.Millisecond * 1000)
 	defer ticker.Stop()
 
@@ -80,14 +84,14 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 			return
 		case <-ticker.C:
 			e.frontier.FreeHosts()
-			potentialJob, err := e.frontier.FindAvailableJob()
+			potentialJobs, err := e.frontier.FindAvailableJobs()
 
 			if err != nil {
 				continue
 			}
 
-			if potentialJob != nil {
-				e.frontier.TryDispatchJob(ctx, potentialJob)
+			for _, job := range potentialJobs {
+				e.frontier.TryDispatchJob(ctx, &job)
 			}
 
 		case page := <-e.pageReceiveChan:
@@ -97,7 +101,23 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 			e.pagesCrawled++
 
 			if e.pagesCrawled%250 == 0 {
-				e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.Int("hosts tracked", e.frontier.GetBufferCount()))
+				now := time.Now()
+				stats := e.frontier.Stats()
+
+				e.log.Info("crawl milestone",
+					zap.Int("pages_crawled", e.pagesCrawled),
+					zap.Duration("milestone_elapsed", now.Sub(e.lastMilestoneAt)),
+					zap.Duration("total_elapsed", now.Sub(e.crawlStartedAt)),
+					zap.Int("host_queues", stats.HostQueues),
+					zap.Int("pending_urls", stats.PendingURLs),
+					zap.Int("largest_host_queue", stats.LargestQueue),
+					zap.Int("ready_queue", len(e.frontier.readyQueue)),
+					zap.Int("link_queue", len(e.linkReceiveChan)),
+					zap.Int("page_queue", len(e.pageReceiveChan)),
+					zap.Int("in flight", int(e.metrics.InFlight.Load())),
+				)
+
+				e.lastMilestoneAt = now
 			}
 
 			e.store.Add(ctx, *page)
