@@ -57,7 +57,7 @@ func (e *Engine) Start() {
 	startTime := time.Now()
 	e.crawlStartedAt = startTime
 	e.lastMilestoneAt = startTime
-	ticker := time.NewTicker(time.Millisecond * 1000)
+	ticker := time.NewTicker(time.Millisecond * time.Duration(e.cfg.DispatchDelay))
 	defer ticker.Stop()
 
 	linkWorkers := 10

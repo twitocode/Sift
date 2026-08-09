@@ -24,6 +24,7 @@ type Config struct {
 	MaxURLsPerHost       int      `env:"MAX_URLS_PER_HOST"`
 	MaxHostQueues        int      `env:"MAX_HOST_QUEUES"`
 	MaxPendingURLs       int      `env:"MAX_PENDING_URLS"`
+  DispatchDelay int `env:"JOB_DISPATCH_DELAY"`
 }
 
 func loadDotEnv() {
