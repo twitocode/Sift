@@ -2,8 +2,6 @@ package crawler
 
 import (
 	"context"
-	"fmt"
-	"net/http"
 	"sync"
 	"time"
 
@@ -17,35 +15,39 @@ type Engine struct {
 	spiderFailChan  chan Payload
 
 	maxPagesCrawled int
-	pagesCrawled    int
-	workers         int
-	blacklist       map[string]struct{}
 
+	pagesCrawled int
+	workers      int
+
+	metrics  *CrawlMetrics
 	cfg      *common.Config
 	dnsCache *DNSCache
 	log      *zap.Logger
 	workerWg sync.WaitGroup
 	store    *PageStore
 	frontier *FrontierStore
+
+	crawlStartedAt  time.Time
+	lastMilestoneAt time.Time
 }
 
 func NewEngine(log *zap.Logger, store *PageStore, cfg *common.Config) *Engine {
-	dnsCache := NewDNSCache(log)
+	metrics := NewCrawlMetrics(log)
+	dnsCache := NewDNSCache(log, metrics)
 
 	return &Engine{
-		pageReceiveChan: make(chan *Page, 256),
+		pageReceiveChan: make(chan *Page, int(float32(cfg.SpiderCount)*1.5)),
 		linkReceiveChan: make(chan URL, 2048),
 		spiderFailChan:  make(chan Payload, cfg.SpiderCount),
 		maxPagesCrawled: cfg.CrawlCount,
-		pagesCrawled:    1,
+		pagesCrawled:    0,
 		workers:         cfg.SpiderCount,
 		store:           store,
 		cfg:             cfg,
-		blacklist:       GenerateBlacklistMap(DefaultBlacklistedDomains),
-
-		frontier: NewFrontierStore(log, dnsCache, cfg.SpiderCount, cfg.CrawlCount),
-		dnsCache: dnsCache,
-		log:      log,
+		frontier:        NewFrontierStore(log, dnsCache, cfg, metrics),
+		metrics:         metrics,
+		dnsCache:        dnsCache,
+		log:             log,
 	}
 }
 
@@ -53,14 +55,16 @@ func (e *Engine) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	startTime := time.Now()
-	ticker := time.NewTicker(time.Millisecond * 1000)
+	e.crawlStartedAt = startTime
+	e.lastMilestoneAt = startTime
+	ticker := time.NewTicker(time.Millisecond * time.Duration(e.cfg.DispatchDelay))
 	defer ticker.Stop()
 
 	linkWorkers := 10
 	// +1 from store
 	e.workerWg.Add(e.workers + linkWorkers + 1)
 
-	go e.store.RunTimer(ctx, &e.workerWg)
+	go e.store.RunTimer(ctx, &e.workerWg, e.metrics)
 	go e.Seed(ctx)
 
 	//TODO: collect from db first
@@ -69,8 +73,7 @@ func (e *Engine) Start() {
 	go e.loop(ctx, ticker, cancel)
 
 	e.workerWg.Wait()
-
-	e.log.Info("Finished Crawling", zap.Int("count", e.pagesCrawled), zap.Duration("elapsed", time.Since(startTime)))
+	e.metrics.PrintSummary(time.Since(startTime))
 }
 
 func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.CancelFunc) {
@@ -80,31 +83,43 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 			return
 		case <-ticker.C:
 			e.frontier.FreeHosts()
-			potentialJob, err := e.frontier.FindAvailableJob()
+			potentialJobs, err := e.frontier.FindAvailableJobs()
 
 			if err != nil {
 				continue
 			}
 
-			if potentialJob != nil {
-				e.frontier.TryDispatchJob(ctx, potentialJob)
+			for _, job := range potentialJobs {
+				e.frontier.TryDispatchJob(ctx, &job)
 			}
 
 		case page := <-e.pageReceiveChan:
 			if page == nil {
 				continue
 			}
+			e.pagesCrawled++
 
-			domain, _ := page.URL.GetDomain()
-			if !IsDomainBlacklisted(domain, e.blacklist) {
-				e.pagesCrawled++
+			if e.pagesCrawled%250 == 0 {
+				now := time.Now()
+				stats := e.frontier.Stats()
 
-				if e.pagesCrawled%250 == 0 {
-					e.log.Info(fmt.Sprintf("Finished Job %d", e.pagesCrawled), zap.String("url", page.URL.String()))
-				}
+				e.log.Info("crawl milestone",
+					zap.Int("pages_crawled", e.pagesCrawled),
+					zap.Duration("milestone_elapsed", now.Sub(e.lastMilestoneAt)),
+					zap.Duration("total_elapsed", now.Sub(e.crawlStartedAt)),
+					zap.Int("host_queues", stats.HostQueues),
+					zap.Int("pending_urls", stats.PendingURLs),
+					zap.Int("largest_host_queue", stats.LargestQueue),
+					zap.Int("ready_queue", len(e.frontier.readyQueue)),
+					zap.Int("link_queue", len(e.linkReceiveChan)),
+					zap.Int("page_queue", len(e.pageReceiveChan)),
+					zap.Int("in flight", int(e.metrics.InFlight.Load())),
+				)
 
-				e.store.Add(ctx, *page)
+				e.lastMilestoneAt = now
 			}
+
+			e.store.Add(ctx, *page)
 
 			e.frontier.ProcessPage(ctx, page)
 			if e.pagesCrawled == e.maxPagesCrawled {
@@ -117,6 +132,7 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 				case <-ctx.Done():
 					return
 				case e.linkReceiveChan <- link:
+					e.metrics.URLsDiscovered.Add(1)
 				}
 			}
 
@@ -135,12 +151,10 @@ func (e *Engine) Seed(ctx context.Context) {
 
 func (e *Engine) startSpiders(ctx context.Context, workerCount int) {
 	e.log.Info("Starting up spiders")
+	client := newHttpClient(e.dnsCache.DialContext, workerCount)
+
 	go func() {
-		var client *http.Client
 		for w := 1; w <= workerCount; w++ {
-
-			client = newHttpClient(e.dnsCache.DialContext)
-
 			spider := NewSpider(
 				w,
 				e.log,
@@ -149,6 +163,7 @@ func (e *Engine) startSpiders(ctx context.Context, workerCount int) {
 				e.pageReceiveChan,
 				e.spiderFailChan,
 				e.dnsCache.DialContext,
+				e.metrics,
 			)
 
 			go func() {

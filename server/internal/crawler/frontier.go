@@ -3,6 +3,7 @@ package crawler
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"github.com/twitocode/sift/internal/common"
@@ -16,22 +17,54 @@ type FrontierStore struct {
 	bloomFilter  *BloomFilter
 	crawledURLs  *common.SafeMap[URL, struct{}]
 	dnsCache     *DNSCache
+	metrics      *CrawlMetrics
+	cfg          *common.Config
 
-	workers int
-	log     *zap.Logger
+	blacklist map[string]struct{}
+	workers   int
+	log       *zap.Logger
+
+	pending atomic.Int32
 }
 
-func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, workerCount, maxPagesCrawled int) *FrontierStore {
+type FrontierStats struct {
+	HostQueues   int
+	PendingURLs  int
+	LargestQueue int
+}
+
+func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, cfg *common.Config, metrics *CrawlMetrics) *FrontierStore {
 	return &FrontierStore{
 		bufferQueues: common.NewSafeMap[URL, *BQueue](),
-		readyQueue:   make(chan Payload, workerCount),
+		readyQueue:   make(chan Payload, cfg.SpiderCount),
 		dispatched:   common.NewSafeMap[URL, struct{}](),
 		crawledURLs:  common.NewSafeMap[URL, struct{}](),
-		bloomFilter:  NewBloomFilter(float64(maxPagesCrawled*2), 0.01),
+		bloomFilter:  NewBloomFilter(float64(cfg.CrawlCount*2), 0.01),
 		dnsCache:     dnsCache,
-		workers:      workerCount,
+		workers:      cfg.SpiderCount,
 		log:          log,
+		blacklist:    GenerateBlacklistMap(DefaultBlacklistedDomains),
+
+		metrics: metrics,
+		cfg:     cfg,
 	}
+}
+
+func (fs *FrontierStore) Stats() FrontierStats {
+	stats := FrontierStats{}
+
+	fs.bufferQueues.Range(func(_ URL, queue *BQueue) bool {
+		stats.HostQueues++
+		pending := queue.Len()
+		stats.PendingURLs += pending
+		if pending > stats.LargestQueue {
+			stats.LargestQueue = pending
+		}
+
+		return true
+	})
+
+	return stats
 }
 
 func (fs *FrontierStore) AddUrl(ctx context.Context, rawUrl URL) {
@@ -42,7 +75,13 @@ func (fs *FrontierStore) AddUrl(ctx context.Context, rawUrl URL) {
 		return
 	}
 
-	if !fs.bufferQueues.Contains(hostname) {
+	domain, _ := rawUrl.GetDomain()
+	if IsDomainBlacklisted(domain, fs.blacklist) {
+		fs.metrics.BlacklistedWebsites.Add(1)
+		return
+	}
+
+	if !fs.bufferQueues.Contains(hostname) && fs.bufferQueues.Length() < fs.cfg.MaxHostQueues {
 		//fs.log.Debug("BQueue cache miss", zap.String("host", hostname.String()))
 		queue := &BQueue{
 			Host:       hostname,
@@ -53,11 +92,7 @@ func (fs *FrontierStore) AddUrl(ctx context.Context, rawUrl URL) {
 
 		fs.bufferQueues.Set(hostname, queue)
 	}
-	// select {
-	// case <-ctx.Done():
-	// 	return
-	// case linkReceiveChan <- rawUrl:
-	// }
+
 }
 
 func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *Payload) {
@@ -75,16 +110,18 @@ func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *Payload) {
 
 func (fs *FrontierStore) HasLinkBeenCrawled(link URL) bool {
 	if fs.bloomFilter.ProbablyContains(link) {
-    return fs.crawledURLs.Contains(link)
-  }
+		return fs.crawledURLs.Contains(link)
+	}
 
-  return false
+	return false
 }
 
 func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
 	sanitizedURL, err := fs.SanitizeURL(link)
 	if err != nil {
-		fs.log.Warn("Website not allowed", zap.String("url", sanitizedURL.String()))
+		fs.log.Debug("Website not allowed", zap.String("url", link.String()))
+
+		fs.metrics.URLsRejected.Add(1)
 		return
 	}
 
@@ -119,8 +156,17 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
 		}
 		return
 	} else {
-		//fs.log.Debug("Adding back to buffer", zap.String("host", hostname.String()), zap.String("url", link.String()))
-		bQueue.Enqueue(sanitizedURL)
+
+		//TODO: might want to remove per host
+		if fs.pending.Load() < int32(fs.cfg.MaxPendingURLs) {
+			if bQueue.Enqueue(sanitizedURL, fs.cfg.MaxURLsPerHost) {
+				fs.pending.Add(1)
+			} else {
+				fs.metrics.URLsSkippedAtLimit.Add(1)
+			}
+		} else {
+			fs.metrics.URLsSkippedAtLimit.Add(1)
+		}
 	}
 }
 
@@ -143,6 +189,7 @@ func (fs *FrontierStore) ProcessPage(ctx context.Context, page *Page) error {
 
 	for _, link := range page.Links {
 		if fs.HasLinkBeenCrawled(link) {
+			fs.metrics.URLDuplicates.Add(1)
 			fs.log.Debug("Duplicate link crawled", zap.String("url", page.URL.String()))
 			continue
 		}
@@ -159,30 +206,36 @@ func (fs *FrontierStore) Shutdown() {
 }
 
 // used for timer
-func (fs *FrontierStore) FindAvailableJob() (*Payload, error) {
-	var job *Payload
+func (fs *FrontierStore) FindAvailableJobs() ([]Payload, error) {
+	jobs := make([]Payload, 0)
+	i := 0
 
 	fs.bufferQueues.Range(func(host URL, queue *BQueue) bool {
+		availableSlots := cap(fs.readyQueue) - len(fs.readyQueue)
+		if i >= availableSlots {
+			return false
+		}
 		if queue.IsAvailable() {
+
 			url := queue.Dequeue()
 			if url == "" {
 				return true
 			}
 
-			job = &Payload{
+			jobs = append(jobs, Payload{
 				url:           url,
 				host:          host,
 				dialerContext: fs.dnsCache.DialContext,
-			}
-
+			})
+			fs.pending.Add(-1)
+			i++
 			queue.Lock()
-			return false
 		}
 
 		return true
 	})
 
-	return job, nil
+	return jobs, nil
 }
 
 func (fs *FrontierStore) HandleSpiderFail(payload Payload) {
@@ -218,10 +271,15 @@ func (fs *FrontierStore) FreeHosts() {
 	fs.bufferQueues.Range(func(url URL, bQueue *BQueue) bool {
 		bQueue.mu.Lock()
 		defer bQueue.mu.Unlock()
+
 		if bQueue.Locked && time.Now().After(bQueue.StaleUntil) {
 			bQueue.Locked = false
 		}
 
 		return true
 	})
+}
+
+func (fs *FrontierStore) GetBufferCount() int {
+	return fs.bufferQueues.Length()
 }

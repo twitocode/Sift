@@ -17,12 +17,17 @@ type BQueue struct {
 }
 
 func (b *BQueue) IsAvailable() bool {
-  b.mu.Lock()
-  defer b.mu.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	return !b.Locked && time.Now().After(b.StaleUntil)
 }
 
+func (b *BQueue) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
+	return len(b.URLs)
+}
 
 func (b *BQueue) Dequeue() URL {
 	b.mu.Lock()
@@ -33,20 +38,26 @@ func (b *BQueue) Dequeue() URL {
 	}
 
 	url := b.URLs[0]
+	b.URLs[0] = ""
 	b.URLs = b.URLs[1:]
 	return url
 }
 
-func (b *BQueue) Enqueue(newUrl URL) {
+func (b *BQueue) Enqueue(newUrl URL, max int) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if len(b.URLs) >= max {
+		return false
+	}
+
 	normalized := newUrl.normalizeString()
 	if slices.Contains(b.URLs, normalized) {
-		return
+		return false
 	}
 
 	b.URLs = append(b.URLs, normalized)
+	return true
 }
 
 func (b *BQueue) Timeout(milliseconds int) {
@@ -71,4 +82,13 @@ func (b *BQueue) TryUnlock() error {
 	}
 	b.Locked = false
 	return nil
+}
+
+func (b *BQueue) CanDelete(now time.Time) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return len(b.URLs) == 0 &&
+		!b.Locked &&
+		now.After(b.StaleUntil)
 }

@@ -3,6 +3,7 @@ package crawler
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"slices"
@@ -19,7 +20,11 @@ type Parser interface {
 }
 
 type HTMLParser struct {
-	log *zap.Logger
+	log     *zap.Logger
+	metrics *CrawlMetrics
+
+	maxHTMLSize     int
+	maxLinksPerPage int
 }
 
 type ParserOutput struct {
@@ -30,17 +35,44 @@ type ParserOutput struct {
 	hasBeenCrawled bool
 }
 
-func NewHTMLParser(log *zap.Logger) *HTMLParser {
-
-	return &HTMLParser{log: log}
+func NewHTMLParser(log *zap.Logger, metrics *CrawlMetrics) *HTMLParser {
+	return &HTMLParser{
+		log:             log,
+		metrics:         metrics,
+		maxHTMLSize:     10 * 1024 * 1024, // 1 MB of data,
+		maxLinksPerPage: 100,
+	}
 }
 
 func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job Payload) (*Page, error) {
-	htmlBytes, _ := io.ReadAll(res.Body)
+	if res.ContentLength > int64(p.maxHTMLSize) {
+		p.log.Debug("Page Too Large", zap.String("url", job.url.String()), zap.Int64("content_length", res.ContentLength))
+		return nil, fmt.Errorf("HTML Content-Length %d exceeds %d Bytes", res.ContentLength, p.maxHTMLSize)
+	}
+
+	limitReader := io.LimitReader(res.Body, int64(p.maxHTMLSize)+1)
+	htmlBytes, err := io.ReadAll(limitReader)
+
+	if err != nil {
+		if ctx.Err() == nil {
+			p.metrics.ParsingFailures.Add(1)
+			p.log.Error("HTML read error", zap.Error(err), zap.String("url", job.url.String()))
+		}
+		return nil, err
+	}
+
+	if len(htmlBytes) > p.maxHTMLSize {
+		p.metrics.BytesDownloaded.Add(int64(p.maxHTMLSize))
+		p.log.Debug("HTML downloaded exceeds limit", zap.String("url", job.url.String()))
+		return nil, fmt.Errorf("HTML requested exceeds %d Bytes", p.maxHTMLSize)
+	}
+
+	p.metrics.BytesDownloaded.Add(int64(len(htmlBytes)))
 	parsedHTML, err := html.Parse(bytes.NewReader(htmlBytes))
 
 	if err != nil {
 		if ctx.Err() == nil {
+			p.metrics.ParsingFailures.Add(1)
 			p.log.Error("HTML parsing error", zap.Error(err), zap.String("url", job.url.String()))
 		}
 		return nil, err
@@ -75,12 +107,14 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job Payload)
 		ContentHash:    CreateSimhashFingerprint(output.text),
 	}
 
+	p.metrics.PagesParsed.Add(1)
 	return page, nil
 }
 
 func (p *HTMLParser) findLinks(doc *goquery.Document, pageURL URL) []URL {
 	var foundUrls []URL = make([]URL, 0)
 
+	reachedMax := false
 	doc.Find("a").Each(func(i int, s *goquery.Selection) {
 		href, exists := s.Attr("href")
 		if !exists || href == "" {
@@ -92,6 +126,13 @@ func (p *HTMLParser) findLinks(doc *goquery.Document, pageURL URL) []URL {
 			return
 		}
 
+		if len(foundUrls) > p.maxLinksPerPage {
+			if !reachedMax {
+				p.log.Debug("Reached Max Links", zap.String("url", pageURL.String()))
+				reachedMax = true
+			}
+			return
+		}
 		foundUrls = append(foundUrls, resolved)
 	})
 
@@ -193,7 +234,7 @@ Loop:
 
 						normalized := normalizeExtractedText(string(chars))
 						if normalized != "" {
-              normalized += " "
+							normalized += " "
 							buffer.Write([]byte(normalized))
 						}
 					}

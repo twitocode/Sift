@@ -21,6 +21,10 @@ type Config struct {
 	OpenRouterAPIKey     string   `env:"OPENROUTER_API_KEY"`
 	SpiderCount          int      `env:"SPIDER_COUNT"`
 	CrawlCount           int      `env:"CRAWL_COUNT"`
+	MaxURLsPerHost       int      `env:"MAX_URLS_PER_HOST"`
+	MaxHostQueues        int      `env:"MAX_HOST_QUEUES"`
+	MaxPendingURLs       int      `env:"MAX_PENDING_URLS"`
+  DispatchDelay int `env:"JOB_DISPATCH_DELAY"`
 }
 
 func loadDotEnv() {

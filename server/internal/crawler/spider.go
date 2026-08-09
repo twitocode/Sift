@@ -5,6 +5,7 @@ import (
 	"mime"
 	"net/http"
 
+	"github.com/twitocode/sift/internal/common"
 	"go.uber.org/zap"
 )
 
@@ -15,6 +16,7 @@ type Spider struct {
 	httpFailChan chan<- Payload
 	log          *zap.Logger
 	client       *http.Client
+	metrics      *CrawlMetrics
 }
 
 var allowedContentTypes = []string{
@@ -23,7 +25,7 @@ var allowedContentTypes = []string{
 	"application/pdf",
 }
 
-func NewSpider(id int, log *zap.Logger, client *http.Client, jobs <-chan Payload, sendChan chan<- *Page, httpFailChan chan<- Payload, dialerContext DialerContext) *Spider {
+func NewSpider(id int, log *zap.Logger, client *http.Client, jobs <-chan Payload, sendChan chan<- *Page, httpFailChan chan<- Payload, dialerContext DialerContext, metrics *CrawlMetrics) *Spider {
 	return &Spider{
 		id,
 		jobs,
@@ -31,6 +33,7 @@ func NewSpider(id int, log *zap.Logger, client *http.Client, jobs <-chan Payload
 		httpFailChan,
 		log,
 		client,
+		metrics,
 	}
 }
 
@@ -46,11 +49,16 @@ func (sp *Spider) Walk(ctx context.Context) {
 			}
 			//sp.log.Debug("Job Accquired", zap.String("url", job.url))
 
-      //TODO: does not respect redirects
+			//TODO: does not respect redirects
 			req, _ := http.NewRequestWithContext(ctx, "GET", job.url.String(), nil)
 			mimicBrowser(req)
-
+      
+      sp.metrics.RequestCount.Add(1)
+      
+      sp.metrics.InFlight.Add(1)
 			res, err := sp.client.Do(req)
+      sp.metrics.InFlight.Add(-1)
+
 			if err != nil {
 				//will return an error (canceled) if the ctx done channel is closed
 				if ctx.Err() != nil {
@@ -61,10 +69,20 @@ func (sp *Spider) Walk(ctx context.Context) {
 				case <-ctx.Done():
 					continue
 				case sp.httpFailChan <- job:
-					sp.log.Warn("Could not request site", zap.String("url", job.url.String()))
+					sp.log.Debug("Could not request site", zap.String("url", job.url.String()))
+
+					sp.metrics.FetchFailures.Add(1)
 					continue
 				}
 			}
+
+			if common.IsClientErrorCode(res.StatusCode) {
+				sp.metrics.HTTP400Errors.Add(1)
+			} else if common.IsServerErrorCode(res.StatusCode) {
+				sp.metrics.HTTP500Errors.Add(1)
+			}
+
+      sp.metrics.URLsFetched.Add(1)
 
 			success := func() bool {
 				//defer before next iteration
@@ -84,11 +102,11 @@ func (sp *Spider) Walk(ctx context.Context) {
 				var page *Page
 
 				if !isPDF(contentType) {
-					page, err = NewHTMLParser(sp.log).Parse(ctx, res, job)
+					page, err = NewHTMLParser(sp.log, sp.metrics).Parse(ctx, res, job)
 
 					if err != nil {
 						if ctx.Err() == nil {
-							sp.log.Error("Goquery error", zap.Error(err), zap.String("url", job.url.String()))
+							sp.log.Error("Parser error", zap.Error(err), zap.String("url", job.url.String()))
 						}
 
 						return false

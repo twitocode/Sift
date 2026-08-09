@@ -16,11 +16,12 @@ type DNSCache struct {
 	ips      *common.SafeMap[string, net.IP]
 	dnsGroup singleflight.Group
 
-	log *zap.Logger
+	metrics *CrawlMetrics
+	log     *zap.Logger
 }
 
-func NewDNSCache(log *zap.Logger) *DNSCache {
-	return &DNSCache{ips: common.NewSafeMap[string, net.IP](), log: log}
+func NewDNSCache(log *zap.Logger, metrics *CrawlMetrics) *DNSCache {
+	return &DNSCache{ips: common.NewSafeMap[string, net.IP](), log: log, metrics: metrics}
 }
 
 func (dc *DNSCache) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -58,6 +59,7 @@ func (dc *DNSCache) resolve(ctx context.Context, host string) (net.IP, error) {
 		return ips[0], nil
 	})
 	if err != nil {
+		dc.metrics.DNSLookupFailures.Add(1)
 		dc.log.Debug("DNS lookup failed", zap.String("host", host), zap.Error(err))
 		return nil, err
 	}
