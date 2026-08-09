@@ -3,9 +3,12 @@ package crawler
 import (
 	"fmt"
 	"runtime"
+	"strconv"
 	"sync/atomic"
 	"time"
 
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/table"
 	"go.uber.org/zap"
 )
 
@@ -14,12 +17,12 @@ type CrawlMetrics struct {
 	URLsRejected       atomic.Int64
 	URLsFetched        atomic.Int64
 	URLsSkippedAtLimit atomic.Int64
-  URLDuplicates atomic.Int64
+	URLDuplicates      atomic.Int64
 
 	FetchFailures       atomic.Int64
 	PagesParsed         atomic.Int64
 	PagesStored         atomic.Int64
-	PagesDuplicates      atomic.Int64
+	PagesDuplicates     atomic.Int64
 	BlacklistedWebsites atomic.Int64
 
 	BytesDownloaded atomic.Int64
@@ -43,54 +46,64 @@ func NewCrawlMetrics(log *zap.Logger) *CrawlMetrics {
 }
 
 func (cm *CrawlMetrics) PrintSummary(duration time.Duration) {
-	cm.log.Info(formatCrawlingSummary(cm, duration))
+	cm.log.Info("Crawling Summary")
 
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
+	rows := getRows(cm, mem, duration)
 
-	cm.log.Info("memory",
-		zap.Uint64("heap_alloc_mb", mem.HeapAlloc/1024/1024),
-		zap.Uint64("heap_inuse_mb", mem.HeapInuse/1024/1024),
-		zap.Uint64("heap_objects", mem.HeapObjects),
-		zap.Uint32("gc_cycles", mem.NumGC),
+	var (
+		purple    = lipgloss.Color("99")
+		gray      = lipgloss.Color("245")
+		lightGray = lipgloss.Color("241")
+
+		headerStyle  = lipgloss.NewStyle().Foreground(purple).Bold(true).Align(lipgloss.Center)
+		cellStyle    = lipgloss.NewStyle().Padding(0, 1).Width(14)
+		oddRowStyle  = cellStyle.Foreground(gray)
+		evenRowStyle = cellStyle.Foreground(lightGray)
 	)
+
+	t := table.New().
+		Border(lipgloss.NormalBorder()).
+		BorderStyle(lipgloss.NewStyle().Foreground(purple)).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			switch {
+			case row == table.HeaderRow:
+				return headerStyle
+			case row%2 == 0:
+				return evenRowStyle
+			default:
+				return oddRowStyle
+			}
+		}).
+		Headers("Data Point", "Value").
+    Width(40).
+		Rows(rows...)
+
+	lipgloss.Println(t)
 }
 
-func formatCrawlingSummary(cm *CrawlMetrics, duration time.Duration) string {
-	return fmt.Sprintf(
-		"Crawling Summary\n"+
-			"  URLs Discovered:   %d\n"+
-			"  URLs Fetched:      %d\n"+
-			"  URLs Rejected:     %d\n"+
-			"  URLs Skipped at Limit:     %d\n"+
-			"  URL Duplicates:     %d\n"+
-			"  Blacklisted Websites:  %d\n"+
-			"  Fetch Failures:    %d\n"+
-			"  Total Requests:    %d\n"+
-			"  Pages Parsed:      %d\n"+
-			"  Pages Stored:      %d\n"+
-			"  Parsing Failures:  %d\n"+
-			"  Duplicated Pages:  %d\n"+
-			"  Gigabytes Downloaded:  %.2f GB\n"+
-			"  Still In Flight:   %d\n"+
-			"  DNS Failures:      %d\n"+
-			"  Time Elapsed:      %s\n",
-		cm.URLsDiscovered.Load(),
-		cm.URLsFetched.Load(),
-		cm.URLsRejected.Load(),
-		cm.URLsSkippedAtLimit.Load(),
-		cm.URLDuplicates.Load(),
-		cm.BlacklistedWebsites.Load(),
-		cm.FetchFailures.Load(),
-		cm.RequestCount.Load(),
-		cm.PagesParsed.Load(),
-		cm.PagesStored.Load(),
-		cm.ParsingFailures.Load(),
-		cm.PagesDuplicates.Load(),
-		float64(cm.BytesDownloaded.Load()) * 1e-9,
-		cm.InFlight.Load(),
-		cm.DNSLookupFailures.Load(),
-		duration,
-	)
-
+func getRows(cm *CrawlMetrics, mem runtime.MemStats, duration time.Duration) [][]string {
+	return [][]string{
+		{"URLs Discovered", strconv.FormatInt(cm.URLsDiscovered.Load(), 10)},
+		{"URLs Fetched", strconv.FormatInt(cm.URLsFetched.Load(), 10)},
+		{"URLs Rejected", strconv.FormatInt(cm.URLsRejected.Load(), 10)},
+		{"URLs Skipped at Limit", strconv.FormatInt(cm.URLsSkippedAtLimit.Load(), 10)},
+		{"URL Duplicates", strconv.FormatInt(cm.URLDuplicates.Load(), 10)},
+		{"Blacklisted Websites", strconv.FormatInt(cm.BlacklistedWebsites.Load(), 10)},
+		{"Fetch Failures", strconv.FormatInt(cm.FetchFailures.Load(), 10)},
+		{"Total Requests", strconv.FormatInt(cm.RequestCount.Load(), 10)},
+		{"Pages Parsed", strconv.FormatInt(cm.PagesParsed.Load(), 10)},
+		{"Pages Stored", strconv.FormatInt(cm.PagesStored.Load(), 10)},
+		{"Parsing Failures", strconv.FormatInt(cm.ParsingFailures.Load(), 10)},
+		{"Duplicated Pages", strconv.FormatInt(cm.PagesDuplicates.Load(), 10)},
+		{"Gigabytes Downloaded", fmt.Sprintf("%.2f GB", float64(cm.BytesDownloaded.Load())*1e-9)},
+		{"Still In Flight", strconv.FormatInt(cm.InFlight.Load(), 10)},
+		{"DNS Failures", strconv.FormatInt(cm.DNSLookupFailures.Load(), 10)},
+		{"Time Elapsed", duration.String()},
+		{"Heap Alloc (MB)", strconv.FormatUint(mem.HeapAlloc/1024/1024, 10)},
+		{"Heap In-Use (MB)", strconv.FormatUint(mem.HeapInuse/1024/1024, 10)},
+		{"Heap Objects", strconv.FormatUint(mem.HeapObjects, 10)},
+		{"GC Cycles", strconv.FormatUint(uint64(mem.NumGC), 10)},
+	}
 }
