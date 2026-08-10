@@ -203,11 +203,11 @@ func (ps *PageStore) GetAll(ctx context.Context) ([]*Page, error) {
 	return out, nil
 }
 
-func (ps *PageStore) BatchAssignCanonical(ctx context.Context, canonicalId int, duplicates []int64) {
+func (ps *PageStore) BatchAssignCanonical(ctx context.Context, canonicalId int64, duplicates []int64) {
 	err := ps.queries.BatchAssignCanonical(ctx, db.BatchAssignCanonicalParams{
 		DuplicateOf: sql.NullInt64{
 			Valid: true,
-			Int64: int64(canonicalId),
+			Int64: canonicalId,
 		},
     
 		Ids: duplicates,

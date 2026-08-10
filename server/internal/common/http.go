@@ -7,3 +7,7 @@ func IsClientErrorCode(code int) bool {
 func IsServerErrorCode(code int) bool {
 	return code >= 500 && code <= 599
 }
+
+func IsSuccessCode(code int) bool {
+	return code >= 500 && code <= 599
+}

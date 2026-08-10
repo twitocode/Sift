@@ -81,6 +81,9 @@ WHERE
   AND found_canonical IS NOT NULL
   AND text IS NOT NULL
   AND found_canonical <> final_url
+  AND content_hash IS NOT NULL
+  AND content_hash <> 0
+  AND length (trim(text)) > 0
   AND duplicate_of IS NULL
 `
 
@@ -169,8 +172,12 @@ WHERE
   AND resolved_canonical = FALSE
   AND found_canonical IS NULL
   AND text IS NOT NULL
+  AND content_hash IS NOT NULL
+  AND content_hash <> 0
+  AND length(trim(text)) > 0
   AND duplicate_of IS NULL
-ORDER BY content_hash ASC
+ORDER BY
+  content_hash ASC
 `
 
 func (q *Queries) FindPossibleDuplicatePages(ctx context.Context) ([]Page, error) {

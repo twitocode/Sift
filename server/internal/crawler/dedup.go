@@ -54,7 +54,7 @@ func (d *Deduplicator) HandleCanonicDuplicates(ctx context.Context) {
 			continue
 		}
 
-		if page.FinalURL == page.FoundCanonical || page.FinalURL == page.FoundCanonical+"/" || page.FinalURL == page.FoundCanonical+".html" || page.FinalURL == page.FoundCanonical+"/index.html" {
+		if IsProbablyCanonical(page) {
 			canonicals[page.FoundCanonical] = &CanonicalInfo{
 				page:    page,
 				similar: make([]*Page, 0),
@@ -69,7 +69,7 @@ func (d *Deduplicator) HandleCanonicDuplicates(ctx context.Context) {
 	d.ReconcileConflicts(canonicals, unfiltered)
 
 	for _, v := range canonicals {
-		d.store.BatchAssignCanonical(ctx, int(v.page.ID), common.Map(v.similar, func(e *Page, _ int) (int64, bool) {
+		d.store.BatchAssignCanonical(ctx, v.page.ID, common.Map(v.similar, func(e *Page, _ int) (int64, bool) {
 			return e.ID, true
 		}))
 	}
@@ -99,25 +99,16 @@ func (d *Deduplicator) HandleRandomDuplicates(ctx context.Context) {
 	clusters := make(map[int][]int)
 
 	for i, _ := range pages {
-		parent := set.Find(i)
-
-		if parent == i {
-			clusters[parent] = []int{parent}
-		} else {
-			if cluster, ok := clusters[parent]; ok {
-				clusters[parent] = append(cluster, i)
-			} else {
-				clusters[parent] = []int{parent, i}
-			}
-		}
+		root := set.Find(i)
+		clusters[root] = append(clusters[root], i)
 	}
 
-	for parent, cluster := range clusters {
+	for _, cluster := range clusters {
 		if len(cluster) == 1 {
 			continue
 		}
 
-		d.ReconcileClusterConflicts(cluster)
+		d.ReconcileClusterConflicts(ctx, cluster, pages)
 	}
 }
 
@@ -147,8 +138,83 @@ func (d *Deduplicator) ReconcileConflicts(canonicals map[URL]*CanonicalInfo, pag
 	}
 }
 
-func (d *Deduplicator) ReconcileClusterConflicts(cluster []int, pages []*Page) {
+func (d *Deduplicator) ReconcileClusterConflicts(ctx context.Context, cluster []int, pages []*Page) {
+	ranks := make([]int, len(cluster))
 
+	//find canonicals
+	for i, pageIndex := range cluster {
+		ranks[i] = 0
+
+		page := pages[pageIndex]
+		if IsProbablyCanonical(page) {
+			ranks[i] += 50
+		}
+
+		//other pages find this one to be the canonical
+		for j, otherPageIndex := range cluster {
+			other := pages[otherPageIndex]
+			if j == i {
+				continue
+			}
+
+			if IsCanonicalOwner(page, other){
+				ranks[i] += 100
+			}
+		}
+
+		if common.IsSuccessCode(page.StatusCode) {
+			ranks[i] += 20
+		}
+
+		if strings.Join(strings.Fields(page.Text), "") != "" {
+			ranks[i] += 5
+		}
+
+		if page.Title != "" {
+			ranks[i] += 10
+		}
+	}
+
+	highestRank := 0
+	candidates := make([]int, 0)
+
+	for i, rank := range ranks {
+		if rank == highestRank {
+			candidates = append(candidates, cluster[i])
+		} else if rank > highestRank {
+			candidates = []int{cluster[i]}
+			highestRank = rank
+		}
+	}
+
+	var electedPage *Page
+	if len(candidates) == 1 {
+		electedPage = pages[candidates[0]]
+	}
+
+	//choose lowest db id
+	lowestId := pages[candidates[0]].ID
+	pageIndex := candidates[0]
+
+	for _, candidate := range candidates {
+		page := pages[candidate]
+		if lowestId > page.ID {
+			lowestId = page.ID
+			pageIndex = candidate
+		}
+	}
+
+	electedPage = pages[pageIndex]
+	duplicates := common.Map(cluster, func(e int, _ int) (int64, bool) {
+		if pageIndex == e {
+			return 0, false
+		}
+
+		page := pages[e]
+		return page.ID, true
+	})
+
+	d.store.BatchAssignCanonical(ctx, electedPage.ID, duplicates)
 }
 
 func findByFingerprint(pages []*Page, f uint64) *Page {
@@ -173,4 +239,11 @@ func findByUrl(pages []*Page, u URL) *Page {
 	}
 
 	return pages[i]
+}
+
+func IsProbablyCanonical(page *Page) bool {
+	return page.FinalURL == page.FoundCanonical || page.FinalURL == page.FoundCanonical+"/" || page.FinalURL == page.FoundCanonical+".html" || page.FinalURL == page.FoundCanonical+"/index.html"
+}
+func IsCanonicalOwner(page *Page, other *Page) bool {
+	return other.FoundCanonical == page.FinalURL || other.FoundCanonical == page.FinalURL+"/" || other.FoundCanonical == page.FinalURL+".html" || other.FoundCanonical == page.FinalURL+"/index.html"
 }
