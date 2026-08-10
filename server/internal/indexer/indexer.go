@@ -2,9 +2,7 @@ package indexer
 
 import (
 	"context"
-	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/twitocode/sift/internal/common"
@@ -62,7 +60,7 @@ func (in *Indexer) Index(ctx context.Context, page *crawler.Page) {
 		if entry, ok := postingMap[token]; !ok {
 			postingMap[token] = Posting{
 				Frequency:    1,
-				DocID:        string(page.FinalURL),
+				DocID:        page.ID,
 				MatchesTitle: i >= titlesStartIndex,
 			}
 		} else {
@@ -85,23 +83,4 @@ func (in *Indexer) Index(ctx context.Context, page *crawler.Page) {
 		postings = append(postings, posting)
 		in.index.Set(token, postings)
 	}
-}
-
-func (in *Indexer) printResults() {
-	i := 0
-	in.index.Range(func(k string, v []Posting) bool {
-		if i == 100 {
-			return false
-		}
-
-		i++
-		fmt.Printf("%s: [%s]\n", k, strings.Join(common.Map(v, func(e Posting, j int) (string, bool) {
-			if j == 2 {
-				return "", false
-			}
-
-			return e.DocID, true
-		}), ", "))
-		return true
-	})
 }

@@ -68,3 +68,5 @@ For about 20000 pages to crawl, I used to use 2GB of ram now i am at about 150MB
 For content deduplication i ended up first finding combinations of pages that have identical canonical pages if they do then fetch them.
 
 The other approach is for pages that do not have one in which i use a simhash to determine similar pages and then clustering them together. Then the algorithm chooses a page to be the canonical one based on a multitude of factors.
+
+Learned how to use the union-find algorithm for clustering together like pages
