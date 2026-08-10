@@ -95,13 +95,11 @@ func (in *Indexer) printResults() {
 		}
 
 		i++
-		j := 0
-		fmt.Printf("%s: [%s]\n", k, strings.Join(common.Map(v, func(e Posting) (string, bool) {
+		fmt.Printf("%s: [%s]\n", k, strings.Join(common.Map(v, func(e Posting, j int) (string, bool) {
 			if j == 2 {
 				return "", false
 			}
 
-			j++
 			return e.DocID, true
 		}), ", "))
 		return true

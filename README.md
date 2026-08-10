@@ -47,21 +47,24 @@ Learned about the existence of atomic primitives in go
 I made many performance improvements. The main bottlenecks that were fixed are having a large MaxIdleConnsPerHost and MaxIdleConns as well as not reading the entire html of a page to see its length but to instead look at the response's ContentLength variable. The amount of heap allocations went down 100x
 For about 20000 pages to crawl, I used to use 2GB of ram now i am at about 150MB
 
-
 #### Results ranked by elapsed time
 
-| spiders | delay | elapsed | requests | parsed | fetch_failures | dns_failures |
-| --- | --- | --- | --- | --- | --- | --- |
-| 192 | 100 | 1m4.329s | 21212 | 19843 | 187 | 34 |
-| 216 | 200 | 1m5.658s | — | — | — | — |
-| 216 | 100 | 1m9.939s | — | — | — | — |
-| 192 | 200 | 1m13.263s | 21540 | 19768 | 259 | 34 |
-| 216 | 500 | 1m20.271s | — | — | — | — |
-| 192 | 500 | 1m21.814s | 21259 | 19834 | 297 | 43 |
-| 128 | 100 | 1m29.926s | 20986 | 19854 | 157 | 22 |
-| 128 | 200 | 1m31.631s | 21138 | 19843 | 190 | 33 |
-| 128 | 500 | 1m41.329s | 21207 | 19828 | 264 | 32 |
-| 64 | 100 | 2m58.248s | 20631 | 19862 | 179 | 42 |
-| 64 | 500 | 3m19.358s | 20833 | 19868 | 319 | 68 |
-| 64 | 200 | 3m20.314s | 21246 | 19880 | 383 | 48 |
-| 256 | 100 | 7m5.027s | — | — | — | — |
+| spiders | delay | elapsed   | requests | parsed | fetch_failures | dns_failures |
+| ------- | ----- | --------- | -------- | ------ | -------------- | ------------ |
+| 192     | 100   | 1m4.329s  | 21212    | 19843  | 187            | 34           |
+| 216     | 200   | 1m5.658s  | —        | —      | —              | —            |
+| 216     | 100   | 1m9.939s  | —        | —      | —              | —            |
+| 192     | 200   | 1m13.263s | 21540    | 19768  | 259            | 34           |
+| 216     | 500   | 1m20.271s | —        | —      | —              | —            |
+| 192     | 500   | 1m21.814s | 21259    | 19834  | 297            | 43           |
+| 128     | 100   | 1m29.926s | 20986    | 19854  | 157            | 22           |
+| 128     | 200   | 1m31.631s | 21138    | 19843  | 190            | 33           |
+| 128     | 500   | 1m41.329s | 21207    | 19828  | 264            | 32           |
+| 64      | 100   | 2m58.248s | 20631    | 19862  | 179            | 42           |
+| 64      | 500   | 3m19.358s | 20833    | 19868  | 319            | 68           |
+| 64      | 200   | 3m20.314s | 21246    | 19880  | 383            | 48           |
+| 256     | 100   | 7m5.027s  | —        | —      | —              | —            |
+
+For content deduplication i ended up first finding combinations of pages that have identical canonical pages if they do then fetch them.
+
+The other approach is for pages that do not have one in which i use a simhash to determine similar pages and then clustering them together. Then the algorithm chooses a page to be the canonical one based on a multitude of factors.

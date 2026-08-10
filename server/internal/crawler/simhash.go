@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/twitocode/sift/internal/common"
 	"github.com/zeebo/xxh3"
 )
 
@@ -18,35 +19,32 @@ All of this could probably be rewritten with math/bits package
 type Shingle []string
 
 type SimHashIndex struct {
-	tables          [][]uint64
+	tables          [][]IndexedFingerprint
 	hammingDistance int
 
 	mu sync.Mutex
 }
 
-func NewSimHashIndex(hammingDistance int, seed bool) *SimHashIndex {
-	var tables [][]uint64
+type IndexedFingerprint struct {
+	fingerprint uint64
+	pageIndex   int
+}
 
-	if seed {
-		tables = [][]uint64{
-			{0x1F3A9C2E7B105D48, 0xA47C2E9F31B8D065, 0x0C9E5A2F7D31B846, 0x8E2F1A9C4D703B5E, 0x3B9F0C2E7A415D68},
-			{0x7A1C3E9F205B4D86, 0xE29F4C1A7B305D9E, 0x1D4A9E2F7C305B48, 0xF3B2C9E7A104D65C, 0x9C2E7F1A4B305D9E},
-			{0x4E9C2A1F7B305D68, 0xB1C7E2A9F304D65C, 0x2F9E4C1A7D305B48, 0xD3A2C9E7F104B65E, 0x5C1A9E2F7B304D68, 0x1F3A9C2E7B105D48},
-			{0x8B3F1C9E2A705D4E, 0x6E2C9A1F7B304D5E, 0xC1A9E2F73B405D68, 0x3E7A2C9F1B304D6E, 0xA9F1C2E73B405D8E},
-		}
+type BinarySearchResult struct {
+	fingerprint uint64
+	index       int
+}
 
-		for i := range tables {
-			slices.Sort(tables[i])
-		}
+func NewSimHashIndex(hammingDistance int) *SimHashIndex {
+	var tables [][]IndexedFingerprint
 
-	} else {
-		tables = [][]uint64{
-			make([]uint64, 0),
-			make([]uint64, 0),
-			make([]uint64, 0),
-			make([]uint64, 0),
+		tables = [][]IndexedFingerprint{
+			make([]IndexedFingerprint, 0),
+			make([]IndexedFingerprint, 0),
+			make([]IndexedFingerprint, 0),
+			make([]IndexedFingerprint, 0),
 		}
-	}
+	
 
 	return &SimHashIndex{
 		tables:          tables,
@@ -61,39 +59,42 @@ func (shi *SimHashIndex) IsDuplicate(fingerprint uint64) (bool, uint64) {
 }
 
 func (shi *SimHashIndex) _isDuplicate(fingerprint uint64) (bool, uint64) {
-	candidates := make([]uint64, 0)
-
-	for i, fingerprints := range shi.tables {
-		targetChunk := GetChunk(fingerprint, i)
-
-		found, exists := shi.BinarySearchChunk(i, targetChunk, fingerprints)
-		if exists {
-      slices.Concat(candidates, found)
-		}
-	}
+	candidates := shi.FindSimilar(fingerprint)
 
 	for _, candidate := range candidates {
-		if AreFingerprintsSimilar(candidate, fingerprint, shi.hammingDistance) {
-			return true, candidate
+		if AreFingerprintsSimilar(candidate.fingerprint, fingerprint, shi.hammingDistance) {
+			return true, candidate.fingerprint
 		}
 	}
 
 	return false, 0
 }
 
-func (shi *SimHashIndex) BinarySearchChunk(chunkNumber int, targetChunk uint64, fingerprints []uint64) ([]uint64, bool) {
-	foundFingerprints := make([]uint64, 0)
+func (shi *SimHashIndex) FindSimilar(fingerprint uint64) []BinarySearchResult {
+	candidates := make([]BinarySearchResult, 0)
+
+	for i, fingerprints := range shi.tables {
+		targetChunk := GetChunk(fingerprint, i)
+
+		found, exists := shi.BinarySearchChunk(i, targetChunk, fingerprints)
+		if exists {
+			candidates = slices.Concat(candidates, found)
+		}
+	}
+
+	return candidates
+}
+
+func (shi *SimHashIndex) BinarySearchChunk(chunkNumber int, targetChunk uint64, fingerprints []IndexedFingerprint) ([]BinarySearchResult, bool) {
+
+	//each chunk array is already sorted so I find an index that in a section of similar fingerprints and then i expand outwards until I find a dissimlar fingerprint
 
 	if len(fingerprints) == 0 {
-		return []uint64{}, false
+		return []BinarySearchResult{}, false
 	}
-	
-  slices.BinarySearchFunc(fingerprints, targetChunk, func(e uint64, t uint64) int {
-		foundChunk := GetChunk(e, chunkNumber)
 
-		if targetChunk == foundChunk {
-			foundFingerprints = append(foundFingerprints, e)
-		}
+	index, found := slices.BinarySearchFunc(fingerprints, targetChunk, func(e IndexedFingerprint, t uint64) int {
+		foundChunk := GetChunk(e.fingerprint, chunkNumber)
 
 		if targetChunk < foundChunk {
 			return 1
@@ -104,30 +105,54 @@ func (shi *SimHashIndex) BinarySearchChunk(chunkNumber int, targetChunk uint64, 
 		return 0
 	})
 
-  if len(foundFingerprints) == 0 {
-    return foundFingerprints, false
-  }
-	return foundFingerprints, true
+	if !found {
+		return []BinarySearchResult{}, false
+	}
+
+	start := index
+	end := index + 1
+
+	for start > 0 && GetChunk(fingerprints[start-1].fingerprint, chunkNumber) == targetChunk {
+		start--
+	}
+
+	for end < len(fingerprints) && GetChunk(fingerprints[end].fingerprint, chunkNumber) == targetChunk {
+		end++
+	}
+
+	return common.Map(fingerprints[start:end], func(e IndexedFingerprint, i int) (BinarySearchResult, bool) {
+		return BinarySearchResult{
+			fingerprint: e.fingerprint,
+			index:       e.pageIndex,
+		}, true
+	}), true
 }
 
-func (shi *SimHashIndex) TryInsert(fingerprint uint64) (bool, uint64) {
+func (shi *SimHashIndex) TryInsert(fingerprint uint64, pageIndex int) (bool, uint64) {
 	if yes, other := shi._isDuplicate(fingerprint); yes {
 		return false, other
 	}
 
-	for i, fingerprints := range shi.tables {
-		shi.tables[i] = append(fingerprints, fingerprint)
-
-		slices.SortFunc(shi.tables[i], func(a, b uint64) int {
-			return int(GetChunk(a, i) - GetChunk(b, i))
-		})
-	}
+	shi.DryInsert(fingerprint, pageIndex)
 
 	return true, 0
 }
 
+func (shi *SimHashIndex) DryInsert(fingerprint uint64, pageIndex int) {
+	for i, fingerprints := range shi.tables {
+		shi.tables[i] = append(fingerprints, IndexedFingerprint{
+      fingerprint: fingerprint,
+      pageIndex: pageIndex,
+    })
+
+		slices.SortFunc(shi.tables[i], func(a, b IndexedFingerprint) int {
+			return int(GetChunk(a.fingerprint, i) - GetChunk(b.fingerprint, i))
+		})
+	}
+}
+
 func GetChunk(fingerprint uint64, chunkNumber int) uint64 {
-	return (fingerprint >> uint64(chunkNumber)) & ((1 << 16) - 1)
+	return (fingerprint >> uint64(chunkNumber*16)) & ((1 << 16) - 1)
 }
 
 func CreateSimhashFingerprint(text string) uint64 {

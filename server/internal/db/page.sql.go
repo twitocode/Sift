@@ -170,6 +170,7 @@ WHERE
   AND found_canonical IS NULL
   AND text IS NOT NULL
   AND duplicate_of IS NULL
+ORDER BY content_hash ASC
 `
 
 func (q *Queries) FindPossibleDuplicatePages(ctx context.Context) ([]Page, error) {

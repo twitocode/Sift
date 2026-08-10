@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/twitocode/sift/internal/common"
 	"go.uber.org/zap"
@@ -25,25 +24,15 @@ type CanonicalInfo struct {
 func NewDeduplicator(store *PageStore, log *zap.Logger) *Deduplicator {
 	return &Deduplicator{
 		store: store,
-		index: NewSimHashIndex(3, false),
+		index: NewSimHashIndex(3),
 		log:   log,
 	}
 }
 
 func (d *Deduplicator) Start(ctx context.Context) {
 	d.log.Info("Started Deduplicator")
-
-	var wg sync.WaitGroup
-
-	wg.Go(func() {
-		d.HandleCanonicDuplicates(ctx)
-	})
-
-	wg.Go(func() {
-		d.HandleRandomDuplicates(ctx)
-	})
-
-	wg.Wait()
+	d.HandleCanonicDuplicates(ctx)
+	d.HandleRandomDuplicates(ctx)
 	d.log.Info("Finished Deduplicator")
 }
 
@@ -80,22 +69,71 @@ func (d *Deduplicator) HandleCanonicDuplicates(ctx context.Context) {
 	d.ReconcileConflicts(canonicals, unfiltered)
 
 	for _, v := range canonicals {
-		d.store.BatchAssignCanonical(ctx, int(v.page.ID), common.Map(v.similar, func(e *Page) (int64, bool) {
+		d.store.BatchAssignCanonical(ctx, int(v.page.ID), common.Map(v.similar, func(e *Page, _ int) (int64, bool) {
 			return e.ID, true
 		}))
 	}
 }
 
 func (d *Deduplicator) HandleRandomDuplicates(ctx context.Context) {
-	_, err := d.store.FindPossibleDuplicatePages(ctx)
+	pages, err := d.store.FindPossibleDuplicatePages(ctx)
 
 	if err != nil {
 		d.log.Fatal("Could not get pages", zap.Error(err))
 		return
-	}  
+	}
+
+	set := NewDisjointSet(len(pages))
+
+	for i, page := range pages {
+		similar := d.index.FindSimilar(page.ContentHash)
+
+		for _, candidate := range similar {
+			if AreFingerprintsSimilar(page.ContentHash, candidate.fingerprint, 3) {
+				set.Union(i, candidate.index)
+			}
+		}
+		d.index.DryInsert(page.ContentHash, i)
+	}
+
+	clusters := make(map[int][]int)
+
+	for i, _ := range pages {
+		parent := set.Find(i)
+
+		if parent == i {
+			clusters[parent] = []int{parent}
+		} else {
+			if cluster, ok := clusters[parent]; ok {
+				clusters[parent] = append(cluster, i)
+			} else {
+				clusters[parent] = []int{parent, i}
+			}
+		}
+	}
+
+	for parent, cluster := range clusters {
+		if len(cluster) == 1 {
+			continue
+		}
+
+		d.ReconcileClusterConflicts(cluster)
+	}
 }
 
-// elects a  page
+func PageIndex(pages []*Page, page *Page) int {
+	i, _ := slices.BinarySearchFunc(pages, page, func(e *Page, t *Page) int {
+		if e.ID == t.ID {
+			return 0
+		} else if t.ID < e.ID {
+			return 1
+		}
+
+		return -1
+	})
+	return i
+}
+
 func (d *Deduplicator) ReconcileConflicts(canonicals map[URL]*CanonicalInfo, pages []*Page) {
 	for _, page := range pages {
 		foundInfo, ok := canonicals[page.FoundCanonical]
@@ -107,6 +145,10 @@ func (d *Deduplicator) ReconcileConflicts(canonicals map[URL]*CanonicalInfo, pag
 			foundInfo.similar = append(foundInfo.similar, page)
 		}
 	}
+}
+
+func (d *Deduplicator) ReconcileClusterConflicts(cluster []int, pages []*Page) {
+
 }
 
 func findByFingerprint(pages []*Page, f uint64) *Page {
