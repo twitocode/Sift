@@ -12,15 +12,17 @@ import (
 
 type Indexer struct {
 	log   *zap.Logger
-	store *crawler.PageStore
+	pageStore *crawler.PageStore
+  indexerStore *IndexerStore 
 
 	index *common.SafeMap[string, []Posting]
 }
 
-func NewIndexer(log *zap.Logger, store *crawler.PageStore) *Indexer {
+func NewIndexer(log *zap.Logger, pageStore *crawler.PageStore, indexerStore *IndexerStore) *Indexer {
 	return &Indexer{
 		log:   log,
-		store: store,
+		pageStore: pageStore,
+    indexerStore: indexerStore,
 		index: common.NewSafeMap[string, []Posting](),
 	}
 }
@@ -29,7 +31,7 @@ func (in *Indexer) Start(ctx context.Context) {
 	in.log.Info("Started Indexing")
 	//TODO: make indexer run on a ticker (or cron job)
 	//TODO: add a vector store - calculate embeddings alongside invert index
-	pages, err := in.store.GetAll(ctx)
+	pages, err := in.pageStore.GetAll(ctx)
 	start := time.Now()
 
 	if err != nil {
@@ -45,6 +47,8 @@ func (in *Indexer) Start(ctx context.Context) {
 
 	elapsed := time.Since(start)
 	in.log.Info("Finished indexing", zap.Duration("elapsed", elapsed))
+
+  //TODO: add to sqlite using store
 }
 
 func (in *Indexer) Index(ctx context.Context, page *crawler.Page) {

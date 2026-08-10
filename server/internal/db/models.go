@@ -8,6 +8,18 @@ import (
 	"database/sql"
 )
 
+type Document struct {
+	ID         int64
+	TokenCount int64
+	PageID     int64
+}
+
+type IndexMetadatum struct {
+	DocumentCount    int64
+	TotalTokenCount  int64
+	AverageDocLength int64
+}
+
 type Link struct {
 	FromUrl sql.NullString
 	ToUrl   sql.NullString
