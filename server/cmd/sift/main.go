@@ -27,11 +27,13 @@ func main() {
 	pageStore := crawler.NewPageStore(sqliteDb, log)
 	indexerStore := indexer.NewIndexerStore(sqliteDb, log)
 
-	pageStore.BeforeCrawl(context.Background())
+  dbCtx := context.Background()
+	pageStore.BeforeCrawl(dbCtx)
+  indexerStore.BeforeIndexing(dbCtx)
 	crawler.NewEngine(log, pageStore, cfg).Start()
 
 	deduplicator := crawler.NewDeduplicator(pageStore, log)
 	deduplicator.Start(context.Background())
 
-	indexer.NewIndexer(log, pageStore, indexerStore).Start(context.Background())
+	indexer.NewIndexer(log, pageStore, indexerStore).Start()
 }

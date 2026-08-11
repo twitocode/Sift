@@ -17,6 +17,7 @@ type Engine struct {
 	maxPagesCrawled int
 
 	pagesCrawled int
+	pagesFetched int
 	workers      int
 
 	metrics  *CrawlMetrics
@@ -94,29 +95,35 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 			}
 
 		case page := <-e.pageReceiveChan:
+
 			if page == nil {
 				continue
 			}
-			e.pagesCrawled++
 
-			if e.pagesCrawled%250 == 0 {
+			if e.pagesFetched%250 == 0 {
 				now := time.Now()
-				stats := e.frontier.Stats()
+				//stats := e.frontier.Stats()
 
 				e.log.Info("crawl milestone",
 					zap.Int("pages_crawled", e.pagesCrawled),
+					zap.Int("pages_fetched", e.pagesFetched),
 					zap.Duration("milestone_elapsed", now.Sub(e.lastMilestoneAt)),
 					zap.Duration("total_elapsed", now.Sub(e.crawlStartedAt)),
-					zap.Int("host_queues", stats.HostQueues),
-					zap.Int("pending_urls", stats.PendingURLs),
-					zap.Int("largest_host_queue", stats.LargestQueue),
-					zap.Int("ready_queue", len(e.frontier.readyQueue)),
-					zap.Int("link_queue", len(e.linkReceiveChan)),
-					zap.Int("page_queue", len(e.pageReceiveChan)),
+					// zap.Int("host_queues", stats.HostQueues),
+					// zap.Int("pending_urls", stats.PendingURLs),
+					// zap.Int("largest_host_queue", stats.LargestQueue),
+					// zap.Int("ready_queue", len(e.frontier.readyQueue)),
+					// zap.Int("link_queue", len(e.linkReceiveChan)),
+					// zap.Int("page_queue", len(e.pageReceiveChan)),
 					zap.Int("in flight", int(e.metrics.InFlight.Load())),
 				)
 
 				e.lastMilestoneAt = now
+			}
+
+			e.pagesFetched++
+			if page.HasBeenCrawled {
+				e.pagesCrawled++
 			}
 
 			e.store.Add(ctx, *page)
@@ -199,6 +206,8 @@ func (e *Engine) shutdown(cancel context.CancelFunc) {
 	cancel()
 	e.store.Shutdown()
 	e.frontier.Shutdown()
+
+	e.metrics.PagesSkipped.Add(int64(e.pagesFetched - e.pagesCrawled))
 
 	//might not need to close
 	//close(e.pageReceiveChan) //might be a code smell

@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/twitocode/sift/internal/common"
@@ -11,54 +12,83 @@ import (
 )
 
 type Indexer struct {
-	log   *zap.Logger
-	pageStore *crawler.PageStore
-  indexerStore *IndexerStore 
+	log          *zap.Logger
+	pageStore    *crawler.PageStore
+	indexerStore *IndexerStore
+	metrics      *IndexerMetrics
 
 	index *common.SafeMap[string, []Posting]
 }
 
 func NewIndexer(log *zap.Logger, pageStore *crawler.PageStore, indexerStore *IndexerStore) *Indexer {
 	return &Indexer{
-		log:   log,
-		pageStore: pageStore,
-    indexerStore: indexerStore,
-		index: common.NewSafeMap[string, []Posting](),
+		log:          log,
+		pageStore:    pageStore,
+		indexerStore: indexerStore,
+		metrics:      NewIndexerMetrics(log),
+		index:        common.NewSafeMap[string, []Posting](),
 	}
 }
 
-func (in *Indexer) Start(ctx context.Context) {
+func (in *Indexer) Start() {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	in.log.Info("Started Indexing")
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	//in.indexerStore.BeforeIndexing(ctx)
+	go in.indexerStore.RunTimer(ctx, &wg, in.metrics)
 	//TODO: make indexer run on a ticker (or cron job)
 	//TODO: add a vector store - calculate embeddings alongside invert index
 	pages, err := in.pageStore.GetAll(ctx)
-	start := time.Now()
 
 	if err != nil {
 		in.log.Fatal("Aborted Indexing", zap.Error(err))
 		return
 	}
 
+	start := time.Now()
+	in.metrics.DocumentsRead.Add(int64(len(pages)))
+
+	indexStats := IndexStats{}
+
 	for _, page := range pages {
-		in.Index(ctx, page)
+		document := in.Index(ctx, page)
+		indexStats.DocumentCount++
+		indexStats.TotalTokenCount += uint64(document.TokenCount)
+		in.indexerStore.Add(ctx, document)
+		in.metrics.DocumentsIndexed.Add(1)
 	}
 
-	in.log.Info("Unique Tokens", zap.Int("count", len(in.index.Keys())))
+	in.indexerStore.AddIndexMetadata(ctx, indexStats)
+	in.shutdown(cancel)
+	wg.Wait()
+
+	indexStats.AverageDocLength = float64(indexStats.TotalTokenCount) / float64(indexStats.DocumentCount)
 
 	elapsed := time.Since(start)
-	in.log.Info("Finished indexing", zap.Duration("elapsed", elapsed))
+	in.metrics.TotalTokens.Add(int64(indexStats.TotalTokenCount))
+	in.metrics.UniqueTerms.Add(int64(len(in.index.Keys())))
 
-  //TODO: add to sqlite using store
+	in.metrics.PrintSummary(elapsed)
 }
 
-func (in *Indexer) Index(ctx context.Context, page *crawler.Page) {
+func (in *Indexer) Index(ctx context.Context, page *crawler.Page) *DocumentStats {
 	textTokens := Tokenize(page.Text)
 	titleTokens := Tokenize(page.Title)
 
 	titlesStartIndex := len(textTokens)
 	allTokens := slices.Concat(textTokens, titleTokens)
 
+	in.metrics.BodyTokens.Add(int64(len(textTokens)))
+	in.metrics.TitleTokens.Add(int64(len(titleTokens)))
+
 	postingMap := make(map[string]Posting)
+	document := &DocumentStats{
+		TokenCount: uint32(len(allTokens)),
+		PageID:     page.ID,
+	}
 
 	for i, token := range allTokens {
 		if entry, ok := postingMap[token]; !ok {
@@ -67,6 +97,7 @@ func (in *Indexer) Index(ctx context.Context, page *crawler.Page) {
 				DocID:        page.ID,
 				MatchesTitle: i >= titlesStartIndex,
 			}
+			in.metrics.TotalPostings.Add(1)
 		} else {
 			entry.Frequency += 1
 			if !entry.MatchesTitle {
@@ -74,6 +105,11 @@ func (in *Indexer) Index(ctx context.Context, page *crawler.Page) {
 			}
 
 			postingMap[token] = entry
+		}
+
+		if i >= titlesStartIndex {
+			in.metrics.TitlePostings.Add(1)
+
 		}
 	}
 
@@ -87,4 +123,11 @@ func (in *Indexer) Index(ctx context.Context, page *crawler.Page) {
 		postings = append(postings, posting)
 		in.index.Set(token, postings)
 	}
+
+	return document
+}
+
+func (in Indexer) shutdown(cancel context.CancelFunc) {
+	in.indexerStore.Shutdown()
+	cancel()
 }

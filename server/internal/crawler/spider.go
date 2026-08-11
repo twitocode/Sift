@@ -52,12 +52,12 @@ func (sp *Spider) Walk(ctx context.Context) {
 			//TODO: does not respect redirects
 			req, _ := http.NewRequestWithContext(ctx, "GET", job.url.String(), nil)
 			mimicBrowser(req)
-      
-      sp.metrics.RequestCount.Add(1)
-      
-      sp.metrics.InFlight.Add(1)
+
+			sp.metrics.RequestCount.Add(1)
+
+			sp.metrics.InFlight.Add(1)
 			res, err := sp.client.Do(req)
-      sp.metrics.InFlight.Add(-1)
+			sp.metrics.InFlight.Add(-1)
 
 			if err != nil {
 				//will return an error (canceled) if the ctx done channel is closed
@@ -82,9 +82,9 @@ func (sp *Spider) Walk(ctx context.Context) {
 				sp.metrics.HTTP500Errors.Add(1)
 			}
 
-      sp.metrics.URLsFetched.Add(1)
+			sp.metrics.URLsFetched.Add(1)
 
-			success := func() bool {
+			func() bool {
 				//defer before next iteration
 				defer res.Body.Close()
 				contentType := res.Header.Get("Content-Type")
@@ -101,6 +101,7 @@ func (sp *Spider) Walk(ctx context.Context) {
 
 				var page *Page
 
+				//TODO: change to isValidContentType
 				if !isPDF(contentType) {
 					page, err = NewHTMLParser(sp.log, sp.metrics).Parse(ctx, res, job)
 
@@ -113,7 +114,7 @@ func (sp *Spider) Walk(ctx context.Context) {
 					}
 				} else {
 					page = &Page{
-						FinalURL:            job.url,
+						FinalURL:       job.url,
 						Host:           job.host,
 						InEnglish:      false,
 						HasBeenCrawled: false,
@@ -130,11 +131,6 @@ func (sp *Spider) Walk(ctx context.Context) {
 				}
 
 			}()
-
-			if !success {
-				continue
-			}
-
 		}
 	}
 }

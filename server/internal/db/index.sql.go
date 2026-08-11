@@ -48,6 +48,24 @@ func (q *Queries) AddIndexMeta(ctx context.Context, arg AddIndexMetaParams) erro
 	return err
 }
 
+const deleteAllDocuments = `-- name: DeleteAllDocuments :exec
+DELETE FROM documents
+`
+
+func (q *Queries) DeleteAllDocuments(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteAllDocuments)
+	return err
+}
+
+const deleteAllIndexMeta = `-- name: DeleteAllIndexMeta :exec
+DELETE FROM index_metadata
+`
+
+func (q *Queries) DeleteAllIndexMeta(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteAllIndexMeta)
+	return err
+}
+
 const getAllDocumentMeta = `-- name: GetAllDocumentMeta :many
 SELECT
   id, token_count, page_id

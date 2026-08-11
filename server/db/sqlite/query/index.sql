@@ -1,3 +1,9 @@
+-- name: DeleteAllDocuments :exec
+DELETE FROM documents;
+
+-- name: DeleteAllIndexMeta :exec
+DELETE FROM index_metadata;
+
 -- name: AddIndexMeta :exec
 INSERT INTO
   index_metadata (

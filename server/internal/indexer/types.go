@@ -11,7 +11,7 @@ type Posting struct {
 type DocumentStats struct {
 	TokenCount uint32
 
-  //not the page id
+  PageID int64
   ID int64
 }
 

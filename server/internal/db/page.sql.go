@@ -61,12 +61,12 @@ func (q *Queries) BatchAssignCanonical(ctx context.Context, arg BatchAssignCanon
 	return err
 }
 
-const deleteAll = `-- name: DeleteAll :exec
+const deleteAllPages = `-- name: DeleteAllPages :exec
 DELETE FROM pages
 `
 
-func (q *Queries) DeleteAll(ctx context.Context) error {
-	_, err := q.db.ExecContext(ctx, deleteAll)
+func (q *Queries) DeleteAllPages(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteAllPages)
 	return err
 }
 

@@ -19,8 +19,9 @@ type CrawlMetrics struct {
 	URLsSkippedAtLimit atomic.Int64
 	URLDuplicates      atomic.Int64
 
-	FetchFailures       atomic.Int64
-	PagesParsed         atomic.Int64
+	FetchFailures atomic.Int64
+	PagesParsed   atomic.Int64
+  PagesSkipped atomic.Int64
 	PagesStored         atomic.Int64
 	PagesDuplicates     atomic.Int64
 	BlacklistedWebsites atomic.Int64
@@ -77,7 +78,7 @@ func (cm *CrawlMetrics) PrintSummary(duration time.Duration) {
 			}
 		}).
 		Headers("Data Point", "Value").
-    Width(40).
+		Width(40).
 		Rows(rows...)
 
 	lipgloss.Println(t)
@@ -95,6 +96,7 @@ func getRows(cm *CrawlMetrics, mem runtime.MemStats, duration time.Duration) [][
 		{"Total Requests", strconv.FormatInt(cm.RequestCount.Load(), 10)},
 		{"Pages Parsed", strconv.FormatInt(cm.PagesParsed.Load(), 10)},
 		{"Pages Stored", strconv.FormatInt(cm.PagesStored.Load(), 10)},
+		{"Skipped Pages", strconv.FormatInt(cm.PagesSkipped.Load(), 10)},
 		{"Parsing Failures", strconv.FormatInt(cm.ParsingFailures.Load(), 10)},
 		{"Duplicated Pages", strconv.FormatInt(cm.PagesDuplicates.Load(), 10)},
 		{"Gigabytes Downloaded", fmt.Sprintf("%.2f GB", float64(cm.BytesDownloaded.Load())*1e-9)},

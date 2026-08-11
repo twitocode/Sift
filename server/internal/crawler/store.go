@@ -22,11 +22,12 @@ type PageStore struct {
 }
 
 func NewPageStore(sqliteDb *sql.DB, log *zap.Logger) *PageStore {
-	bufferSize := 256
+	bufferSize := 1024
 	return &PageStore{
 		queries:    db.New(sqliteDb),
 		bufferChan: make(chan *Page, bufferSize*2),
 		sqliteDb:   sqliteDb,
+		bufferSize: bufferSize,
 		buffer:     make([]*Page, 0, bufferSize),
 		log:        log,
 	}
@@ -77,7 +78,14 @@ func (ps *PageStore) RunTimer(ctx context.Context, wg *sync.WaitGroup, metrics *
 }
 
 func (ps *PageStore) flush(ctx context.Context, metrics *CrawlMetrics) {
-	metrics.PagesStored.Add(int64(len(ps.buffer)))
+	tx, err := ps.sqliteDb.Begin()
+	if err != nil {
+		ps.log.Error("Could not create page transaction")
+		tx.Rollback()
+		return
+	}
+
+	added := int64(0)
 
 	for _, sm := range ps.buffer {
 		err := ps.queries.SetPageInfo(ctx, db.SetPageInfoParams{
@@ -120,10 +128,20 @@ func (ps *PageStore) flush(ctx context.Context, metrics *CrawlMetrics) {
 
 		if err != nil {
 			ps.log.Error("Sqlite write error", zap.Error(err))
+			return
 		}
+
+		added++
 	}
 
+	err = tx.Commit()
+	if err != nil {
+		ps.log.Error("Sqlite transaction write error", zap.Error(err))
+		return
+	}
+	metrics.PagesStored.Add(added)
 	ps.buffer = ps.buffer[:0]
+	ps.log.Info("Flushed page buffer", zap.Int64("count", added))
 }
 
 func (ps *PageStore) Shutdown() {
@@ -209,7 +227,7 @@ func (ps *PageStore) BatchAssignCanonical(ctx context.Context, canonicalId int64
 			Valid: true,
 			Int64: canonicalId,
 		},
-    
+
 		Ids: duplicates,
 	})
 
@@ -221,7 +239,7 @@ func (ps *PageStore) BatchAssignCanonical(ctx context.Context, canonicalId int64
 
 func (ps *PageStore) BeforeCrawl(ctx context.Context) {
 	ps.log.Info("Attempting to delete previous set")
-	err := ps.queries.DeleteAll(ctx)
+	err := ps.queries.DeleteAllPages(ctx)
 	if err != nil {
 		ps.log.Fatal("Sqlite delete all error", zap.Error(err))
 	}

@@ -1,4 +1,4 @@
--- name: DeleteAll :exec
+-- name: DeleteAllPages :exec
 DELETE FROM pages;
 
 -- name: SetPageInfo :exec
