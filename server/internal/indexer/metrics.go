@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"fmt"
 	"runtime"
 	"strconv"
 	"sync/atomic"
@@ -89,6 +90,6 @@ func getRows(cm *IndexerMetrics, mem runtime.MemStats, duration time.Duration) [
 		{"Documents Stored", strconv.FormatInt(cm.DocumentsStored.Load(), 10)},
 		{"Flushes", strconv.FormatInt(cm.Flushes.Load(), 10)},
 		{"Store Errors", strconv.FormatInt(cm.StoreErrors.Load(), 10)},
-		{"Time Elapsed", duration.String()},
+		{"Time Elapsed", fmt.Sprintf("%.2f", duration.String())},
 	}
 }

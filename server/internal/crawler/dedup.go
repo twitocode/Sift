@@ -2,7 +2,6 @@ package crawler
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"strings"
 
@@ -130,7 +129,6 @@ func (d *Deduplicator) ReconcileConflicts(canonicals map[URL]*CanonicalInfo, pag
 		foundInfo, ok := canonicals[page.FoundCanonical]
 
 		if ok {
-			fmt.Println("Found canonical")
 			page.ResolvedCanonical = true
 			page.DuplicateOf = foundInfo.page.ID
 			foundInfo.similar = append(foundInfo.similar, page)
@@ -157,7 +155,7 @@ func (d *Deduplicator) ReconcileClusterConflicts(ctx context.Context, cluster []
 				continue
 			}
 
-			if IsCanonicalOwner(page, other){
+			if IsCanonicalOwner(page, other) {
 				ranks[i] += 100
 			}
 		}

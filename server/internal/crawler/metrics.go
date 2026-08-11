@@ -102,7 +102,7 @@ func getRows(cm *CrawlMetrics, mem runtime.MemStats, duration time.Duration) [][
 		{"Gigabytes Downloaded", fmt.Sprintf("%.2f GB", float64(cm.BytesDownloaded.Load())*1e-9)},
 		{"Still In Flight", strconv.FormatInt(cm.InFlight.Load(), 10)},
 		{"DNS Failures", strconv.FormatInt(cm.DNSLookupFailures.Load(), 10)},
-		{"Time Elapsed", duration.String()},
+		{"Time Elapsed",fmt.Sprintf("%.2f", duration.String())},
 		{"Heap Alloc (MB)", strconv.FormatUint(mem.HeapAlloc/1024/1024, 10)},
 		{"Heap In-Use (MB)", strconv.FormatUint(mem.HeapInuse/1024/1024, 10)},
 		{"Heap Objects", strconv.FormatUint(mem.HeapObjects, 10)},

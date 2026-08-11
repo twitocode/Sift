@@ -31,9 +31,12 @@ type FrontierStore struct {
 }
 
 type FrontierStats struct {
-	HostQueues   int
-	PendingURLs  int
-	LargestQueue int
+	HostQueues     int
+	PendingURLs    int
+	LargestQueue   int
+	LockedHosts    int
+	CooldownHosts  int
+	AvailableHosts int
 }
 
 func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, cfg *common.Config, metrics *CrawlMetrics) *FrontierStore {
@@ -55,13 +58,27 @@ func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, cfg *common.Config, m
 
 func (fs *FrontierStore) Stats() FrontierStats {
 	stats := FrontierStats{}
+	now := time.Now()
 
 	fs.bufferQueues.Range(func(_ URL, queue *BQueue) bool {
+		queue.mu.Lock()
+		pending := len(queue.URLs)
+		locked := queue.Locked
+		staleUntil := queue.StaleUntil
+		queue.mu.Unlock()
+
 		stats.HostQueues++
-		pending := queue.Len()
 		stats.PendingURLs += pending
 		if pending > stats.LargestQueue {
 			stats.LargestQueue = pending
+		}
+		if locked {
+			stats.LockedHosts++
+			if !staleUntil.IsZero() && now.Before(staleUntil) {
+				stats.CooldownHosts++
+			}
+		} else if staleUntil.IsZero() || now.After(staleUntil) {
+			stats.AvailableHosts++
 		}
 
 		return true
@@ -97,7 +114,7 @@ func (fs *FrontierStore) AddHost(ctx context.Context, newUrlToRequest URL) {
 
 	queue := &BQueue{
 		Host:       hostname,
-		URLs:       []URL{},
+  URLs:       []URL{},
 		Locked:     false,
 		StaleUntil: time.Now(),
 	}
@@ -151,6 +168,7 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, newUrlToRequest URL) {
 	}
 
 	if readyQueueAvailable && bQueue.TryLock() {
+		bQueue.DiscoveredCount.Add(1)
 		payload := Payload{
 			url:           sanitizedURL,
 			host:          hostname,

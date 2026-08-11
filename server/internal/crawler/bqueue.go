@@ -124,7 +124,7 @@ func (b *BQueue) GetDelay() time.Duration {
 	discovered := b.DiscoveredCount.Load()
 
 	if discovered == 0 {
-		return time.Second * 4000
+		return time.Second * baseDelay
 	}
 
 	skipRatio := skipped / discovered

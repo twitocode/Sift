@@ -95,7 +95,6 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 			}
 
 		case page := <-e.pageReceiveChan:
-
 			if page == nil {
 				continue
 			}
@@ -112,6 +111,9 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 					zap.Int("host_queues", stats.HostQueues),
 					zap.Int("pending_urls", stats.PendingURLs),
 					zap.Int("largest_host_queue", stats.LargestQueue),
+					zap.Int("locked_hosts", stats.LockedHosts),
+					zap.Int("cooldown_hosts", stats.CooldownHosts),
+					zap.Int("available_hosts", stats.AvailableHosts),
 					zap.Int("ready_queue", len(e.frontier.readyQueue)),
 					zap.Int("link_queue", len(e.linkReceiveChan)),
 					zap.Int("page_queue", len(e.pageReceiveChan)),
