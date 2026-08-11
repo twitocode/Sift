@@ -114,10 +114,11 @@ func (sp *Spider) Walk(ctx context.Context) {
 					}
 				} else {
 					page = &Page{
-						FinalURL:       job.url,
+						FinalURL:       URL(res.Request.URL.String()),
 						Host:           job.host,
 						InEnglish:      false,
 						HasBeenCrawled: false,
+						RequestedURL:   job.url,
 					}
 					//TODO: pdf extraction
 				}

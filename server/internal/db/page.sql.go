@@ -174,7 +174,7 @@ WHERE
   AND text IS NOT NULL
   AND content_hash IS NOT NULL
   AND content_hash <> 0
-  AND length(trim(text)) > 0
+  AND length (trim(text)) > 0
   AND duplicate_of IS NULL
 ORDER BY
   content_hash ASC
@@ -324,8 +324,7 @@ func (q *Queries) GetPageInfoByURL(ctx context.Context, finalUrl string) (Page, 
 }
 
 const setPageInfo = `-- name: SetPageInfo :exec
-INSERT
-OR REPLACE INTO pages (
+INSERT INTO pages (
   final_url,
   request_url,
   title,

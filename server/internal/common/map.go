@@ -31,6 +31,18 @@ func (sm *SafeMap[K, V]) Set(key K, value V) {
 	sm.m[key] = value
 }
 
+func (sm *SafeMap[K, V]) SetIfAbsent(key K, value V) bool {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if _, exists := sm.m[key]; exists {
+		return false
+	}
+
+	sm.m[key] = value
+	return true
+}
+
 func (sm *SafeMap[K, V]) Contains(key K) bool {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()

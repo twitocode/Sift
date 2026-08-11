@@ -102,19 +102,19 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 
 			if e.pagesFetched%250 == 0 {
 				now := time.Now()
-				//stats := e.frontier.Stats()
+				stats := e.frontier.Stats()
 
 				e.log.Info("crawl milestone",
 					zap.Int("pages_crawled", e.pagesCrawled),
 					zap.Int("pages_fetched", e.pagesFetched),
 					zap.Duration("milestone_elapsed", now.Sub(e.lastMilestoneAt)),
 					zap.Duration("total_elapsed", now.Sub(e.crawlStartedAt)),
-					// zap.Int("host_queues", stats.HostQueues),
-					// zap.Int("pending_urls", stats.PendingURLs),
-					// zap.Int("largest_host_queue", stats.LargestQueue),
-					// zap.Int("ready_queue", len(e.frontier.readyQueue)),
-					// zap.Int("link_queue", len(e.linkReceiveChan)),
-					// zap.Int("page_queue", len(e.pageReceiveChan)),
+					zap.Int("host_queues", stats.HostQueues),
+					zap.Int("pending_urls", stats.PendingURLs),
+					zap.Int("largest_host_queue", stats.LargestQueue),
+					zap.Int("ready_queue", len(e.frontier.readyQueue)),
+					zap.Int("link_queue", len(e.linkReceiveChan)),
+					zap.Int("page_queue", len(e.pageReceiveChan)),
 					zap.Int("in flight", int(e.metrics.InFlight.Load())),
 				)
 
@@ -134,11 +134,11 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 				return
 			}
 
-			for _, link := range page.Links {
+			for _, newUrlToRequest := range page.Links {
 				select {
 				case <-ctx.Done():
 					return
-				case e.linkReceiveChan <- link:
+				case e.linkReceiveChan <- newUrlToRequest:
 					e.metrics.URLsDiscovered.Add(1)
 				}
 			}
@@ -151,7 +151,7 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 
 func (e *Engine) Seed(ctx context.Context) {
 	for _, link := range seed {
-		e.frontier.AddUrl(ctx, link)
+		e.frontier.AddHost(ctx, link)
 		e.frontier.ProcessLink(ctx, link)
 	}
 }
@@ -190,12 +190,12 @@ func (e *Engine) startLinkWorkers(ctx context.Context, count int) {
 				select {
 				case <-ctx.Done():
 					return
-				case link, ok := <-e.linkReceiveChan:
+				case newUrlToRequest, ok := <-e.linkReceiveChan:
 					if !ok {
 						return
 					}
-					e.frontier.AddUrl(ctx, link)
-					e.frontier.ProcessLink(ctx, link)
+					e.frontier.AddHost(ctx, newUrlToRequest)
+					e.frontier.ProcessLink(ctx, newUrlToRequest)
 				}
 			}
 		}()

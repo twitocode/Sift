@@ -3,6 +3,7 @@ package crawler
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 type FrontierStore struct {
 	bufferQueues *common.SafeMap[URL, *BQueue]
 	readyQueue   chan Payload
-	dispatched   *common.SafeMap[URL, struct{}]
+	seenURLs     *common.SafeMap[URL, struct{}]
 	bloomFilter  *BloomFilter
 	crawledURLs  *common.SafeMap[URL, struct{}]
 	dnsCache     *DNSCache
@@ -25,6 +26,8 @@ type FrontierStore struct {
 	log       *zap.Logger
 
 	pending atomic.Int32
+
+	hostMu sync.Mutex
 }
 
 type FrontierStats struct {
@@ -37,7 +40,7 @@ func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, cfg *common.Config, m
 	return &FrontierStore{
 		bufferQueues: common.NewSafeMap[URL, *BQueue](),
 		readyQueue:   make(chan Payload, cfg.SpiderCount),
-		dispatched:   common.NewSafeMap[URL, struct{}](),
+		seenURLs:     common.NewSafeMap[URL, struct{}](),
 		crawledURLs:  common.NewSafeMap[URL, struct{}](),
 		bloomFilter:  NewBloomFilter(float64(cfg.CrawlCount*2), 0.01),
 		dnsCache:     dnsCache,
@@ -67,43 +70,48 @@ func (fs *FrontierStore) Stats() FrontierStats {
 	return stats
 }
 
-func (fs *FrontierStore) AddUrl(ctx context.Context, rawUrl URL) {
-	hostname, err := rawUrl.GetHost()
+func (fs *FrontierStore) AddHost(ctx context.Context, newUrlToRequest URL) {
+	hostname, err := newUrlToRequest.GetHost()
 
 	if err != nil {
-		fs.log.Warn("Invalid url given", zap.String("url", rawUrl.String()))
+		fs.log.Warn("Invalid url given", zap.String("url", newUrlToRequest.String()))
 		return
 	}
 
-	domain, _ := rawUrl.GetDomain()
+	domain, _ := newUrlToRequest.GetDomain()
 	if IsDomainBlacklisted(domain, fs.blacklist) {
 		fs.metrics.BlacklistedWebsites.Add(1)
 		return
 	}
 
-	if !fs.bufferQueues.Contains(hostname) && fs.bufferQueues.Length() < fs.cfg.MaxHostQueues {
-		//fs.log.Debug("BQueue cache miss", zap.String("host", hostname.String()))
-		queue := &BQueue{
-			Host:       hostname,
-			URLs:       []URL{},
-			Locked:     false,
-			StaleUntil: time.Now(),
-		}
-
-		fs.bufferQueues.Set(hostname, queue)
+	if fs.bufferQueues.Contains(hostname) {
+		return
 	}
 
+	fs.hostMu.Lock()
+	defer fs.hostMu.Unlock()
+
+	if fs.bufferQueues.Contains(hostname) || fs.bufferQueues.Length() >= fs.cfg.MaxHostQueues {
+		return
+	}
+
+	queue := &BQueue{
+		Host:       hostname,
+		URLs:       []URL{},
+		Locked:     false,
+		StaleUntil: time.Now(),
+	}
+
+	fs.bufferQueues.Set(hostname, queue)
 }
 
 func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *Payload) {
-	bQueue, exists := fs.bufferQueues.Get(job.host)
+	_, exists := fs.bufferQueues.Get(job.host)
 	if exists {
 		select {
 		case <-ctx.Done():
 			return
 		case fs.readyQueue <- *job:
-			bQueue.Lock()
-			fs.dispatched.Set(job.url, struct{}{})
 		}
 	}
 }
@@ -116,10 +124,10 @@ func (fs *FrontierStore) HasLinkBeenCrawled(link URL) bool {
 	return false
 }
 
-func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
-	sanitizedURL, err := fs.SanitizeURL(link)
+func (fs *FrontierStore) ProcessLink(ctx context.Context, newUrlToRequest URL) {
+	sanitizedURL, err := fs.SanitizeURL(newUrlToRequest)
 	if err != nil {
-		fs.log.Debug("Website not allowed", zap.String("url", link.String()))
+		fs.log.Debug("Website not allowed", zap.String("url", newUrlToRequest.String()))
 
 		fs.metrics.URLsRejected.Add(1)
 		return
@@ -136,11 +144,13 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
 		return
 	}
 
-	dispatchedAlready := fs.dispatched.Contains(sanitizedURL)
-	hostQueueAvailable := bQueue.IsAvailable()
 	readyQueueAvailable := len(fs.readyQueue) < fs.workers
 
-	if !dispatchedAlready && hostQueueAvailable && readyQueueAvailable {
+	if !fs.claimURL(sanitizedURL) {
+		return
+	}
+
+	if readyQueueAvailable && bQueue.TryLock() {
 		payload := Payload{
 			url:           sanitizedURL,
 			host:          hostname,
@@ -149,38 +159,44 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, link URL) {
 
 		select {
 		case <-ctx.Done():
+			fs.seenURLs.Delete(sanitizedURL)
+			bQueue.Unlock()
 			return
 		case fs.readyQueue <- payload:
-			fs.dispatched.Set(sanitizedURL, struct{}{})
-			bQueue.Lock()
 		}
 		return
 	} else {
-
 		//TODO: might want to remove per host
 		if fs.pending.Load() < int32(fs.cfg.MaxPendingURLs) {
 			if bQueue.Enqueue(sanitizedURL, fs.cfg.MaxURLsPerHost) {
 				fs.pending.Add(1)
 			} else {
+				fs.seenURLs.Delete(sanitizedURL)
 				bQueue.SkippedCount.Add(1)
 				fs.metrics.URLsSkippedAtLimit.Add(1)
 			}
 
 			bQueue.DiscoveredCount.Add(1)
 		} else {
+			fs.seenURLs.Delete(sanitizedURL)
 			fs.metrics.URLsSkippedAtLimit.Add(1)
 		}
 	}
 }
 
 func (fs *FrontierStore) ProcessPage(ctx context.Context, page *Page) error {
-	if !fs.IsLinkDispatched(page.RequestedURL) {
+	requestedURL := page.RequestedURL.normalizeString()
+	finalURL := page.FinalURL.normalizeString()
+
+	if !fs.IsLinkDispatched(requestedURL) {
 		return errors.New("Link for some reason not available")
 	}
 
-	fs.bloomFilter.Insert(page.FinalURL)
-	fs.crawledURLs.Set(page.FinalURL, struct{}{})
-	fs.dispatched.Delete(page.RequestedURL)
+	fs.bloomFilter.Insert(requestedURL)
+	fs.crawledURLs.Set(requestedURL, struct{}{})
+
+	fs.bloomFilter.Insert(finalURL)
+	fs.crawledURLs.Set(finalURL, struct{}{})
 
 	bQueue, exists := fs.bufferQueues.Get(page.Host)
 	if !exists {
@@ -218,21 +234,27 @@ func (fs *FrontierStore) FindAvailableJobs() ([]Payload, error) {
 		if i >= availableSlots {
 			return false
 		}
-		if queue.IsAvailable() {
+		if queue.TryLock() {
+			for {
+				url := queue.Dequeue()
+				if url == "" {
+					queue.Unlock()
+					break
+				}
 
-			url := queue.Dequeue()
-			if url == "" {
-				return true
+				fs.pending.Add(-1)
+				if fs.HasLinkBeenCrawled(url) {
+					continue
+				}
+
+				jobs = append(jobs, Payload{
+					url:           url,
+					host:          host,
+					dialerContext: fs.dnsCache.DialContext,
+				})
+				i++
+				break
 			}
-
-			jobs = append(jobs, Payload{
-				url:           url,
-				host:          host,
-				dialerContext: fs.dnsCache.DialContext,
-			})
-			fs.pending.Add(-1)
-			i++
-			queue.Lock()
 		}
 
 		return true
@@ -242,7 +264,7 @@ func (fs *FrontierStore) FindAvailableJobs() ([]Payload, error) {
 }
 
 func (fs *FrontierStore) HandleSpiderFail(payload Payload) {
-	fs.dispatched.Delete(payload.url)
+	fs.seenURLs.Delete(payload.url)
 
 	bQueue, exists := fs.bufferQueues.Get(payload.host)
 	if exists {
@@ -252,12 +274,11 @@ func (fs *FrontierStore) HandleSpiderFail(payload Payload) {
 
 func (fs *FrontierStore) IsLinkAvailable(link URL) bool {
 	//bloom filter and stuff
-	return !fs.HasLinkBeenCrawled(link) && !fs.dispatched.Contains(link)
+	return !fs.HasLinkBeenCrawled(link) && !fs.seenURLs.Contains(link)
 }
 
 func (fs *FrontierStore) IsLinkDispatched(link URL) bool {
-	//bloom filter and stuff
-	return !fs.HasLinkBeenCrawled(link) && fs.dispatched.Contains(link)
+	return fs.seenURLs.Contains(link.normalizeString())
 }
 
 func (fs *FrontierStore) SanitizeURL(link URL) (URL, error) {
@@ -275,7 +296,7 @@ func (fs *FrontierStore) FreeHosts() {
 		bQueue.mu.Lock()
 		defer bQueue.mu.Unlock()
 
-		if bQueue.Locked && time.Now().After(bQueue.StaleUntil) {
+		if bQueue.Locked && !bQueue.StaleUntil.IsZero() && time.Now().After(bQueue.StaleUntil) {
 			bQueue.Locked = false
 		}
 
@@ -285,4 +306,12 @@ func (fs *FrontierStore) FreeHosts() {
 
 func (fs *FrontierStore) GetBufferCount() int {
 	return fs.bufferQueues.Length()
+}
+
+func (fs *FrontierStore) claimURL(url URL) bool {
+	if fs.crawledURLs.Contains(url) {
+		return false
+	}
+
+	return fs.seenURLs.SetIfAbsent(url, struct{}{})
 }

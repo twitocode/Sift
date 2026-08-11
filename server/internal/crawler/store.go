@@ -80,15 +80,16 @@ func (ps *PageStore) RunTimer(ctx context.Context, wg *sync.WaitGroup, metrics *
 func (ps *PageStore) flush(ctx context.Context, metrics *CrawlMetrics) {
 	tx, err := ps.sqliteDb.Begin()
 	if err != nil {
-		ps.log.Error("Could not create page transaction")
-		tx.Rollback()
+		ps.log.Error("Could not create page transaction", zap.Error(err))
 		return
 	}
+	defer tx.Rollback()
 
 	added := int64(0)
+	qtx := ps.queries.WithTx(tx)
 
 	for _, sm := range ps.buffer {
-		err := ps.queries.SetPageInfo(ctx, db.SetPageInfoParams{
+		err := qtx.SetPageInfo(ctx, db.SetPageInfoParams{
 			FinalUrl:   sm.FinalURL.String(),
 			RequestUrl: sm.RequestedURL.String(),
 			Title: sql.NullString{
@@ -127,7 +128,12 @@ func (ps *PageStore) flush(ctx context.Context, metrics *CrawlMetrics) {
 		})
 
 		if err != nil {
-			ps.log.Error("Sqlite write error", zap.Error(err))
+			ps.log.Error(
+				"Sqlite write error",
+				zap.Error(err),
+				zap.String("request_url", sm.RequestedURL.String()),
+				zap.String("final_url", sm.FinalURL.String()),
+			)
 			return
 		}
 

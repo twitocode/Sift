@@ -58,15 +58,34 @@ func (b *BQueue) Enqueue(newUrl URL, max int) bool {
 	if slices.Contains(b.URLs, normalized) {
 		return false
 	}
-
 	b.URLs = append(b.URLs, normalized)
 	return true
+}
+
+func (b *BQueue) TryLock() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.Locked || !time.Now().After(b.StaleUntil) {
+		return false
+	}
+
+	b.Locked = true
+	b.StaleUntil = time.Time{}
+	return true
+}
+
+func (b *BQueue) Unlock() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.Locked = false
 }
 
 func (b *BQueue) Timeout() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.StaleUntil = time.Now().Add( b.GetDelay())
+	b.StaleUntil = time.Now().Add(b.GetDelay())
 }
 
 func (b *BQueue) Lock() {
@@ -104,9 +123,9 @@ func (b *BQueue) GetDelay() time.Duration {
 	skipped := b.SkippedCount.Load()
 	discovered := b.DiscoveredCount.Load()
 
-  if discovered == 0 {
-    return time.Second * 4000
-  }
+	if discovered == 0 {
+		return time.Second * 4000
+	}
 
 	skipRatio := skipped / discovered
 

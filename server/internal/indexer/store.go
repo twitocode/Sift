@@ -87,7 +87,7 @@ func (is *IndexerStore) RunTimer(ctx context.Context, wg *sync.WaitGroup, metric
 	}
 }
 
-func (is *IndexerStore) flush(ctx context.Context, ) {
+func (is *IndexerStore) flush(ctx context.Context) {
 	is.metrics.DocumentsStored.Add(int64(len(is.buffer)))
 	is.metrics.Flushes.Add(1)
 
@@ -138,20 +138,30 @@ func (is *IndexerStore) BatchAddDocumentMetadata(ctx context.Context, meta []*Do
 		return
 	}
 
+	qtx := is.queries.WithTx(tx)
+
 	for _, data := range meta {
-		err := is.queries.AddDocumentMeta(ctx, db.AddDocumentMetaParams{
+		err := qtx.AddDocumentMeta(ctx, db.AddDocumentMetaParams{
 			TokenCount: int64(data.TokenCount),
 			PageID:     data.PageID,
 		})
 
 		if err != nil {
 			is.log.Error("Sqlite insert in transaction error", zap.Error(err))
-			tx.Rollback()
 			return
 		}
 	}
 
-	tx.Commit()
+	err = tx.Commit()
+	if err != nil {
+		is.log.Error(
+			"Sqlite write error",
+			zap.Error(err),
+		)
+		tx.Rollback()
+		return
+	}
+
 }
 
 func (is *IndexerStore) LoadLatestIndexMetadata(ctx context.Context) *IndexStats {
@@ -195,7 +205,7 @@ func (is *IndexerStore) LoadAllDocuments(ctx context.Context) []DocumentStats {
 }
 
 func (is *IndexerStore) Shutdown() {
-  close(is.bufferChan)
+	close(is.bufferChan)
 }
 
 func BoolToInt64(b bool) int64 {
