@@ -3,7 +3,9 @@ package frontier
 import (
 	"context"
 	"mime"
+	"net"
 	"net/http"
+	"time"
 
 	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/crawler/networking"
@@ -58,7 +60,10 @@ func (sp *Spider) Walk(ctx context.Context) {
 			sp.metrics.RequestCount.Add(1)
 
 			sp.metrics.InFlight.Add(1)
+			fetchStartedAt := time.Now()
 			res, err := sp.client.Do(req)
+			host, _ := job.url.GetHost()
+			sp.metrics.RecordFetch(time.Since(fetchStartedAt), net.ParseIP(host.String()) != nil)
 			sp.metrics.InFlight.Add(-1)
 
 			if err != nil {

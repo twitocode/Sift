@@ -76,7 +76,7 @@ func (e *Engine) Start() {
 	go e.loop(ctx, cancel)
 
 	e.workerWg.Wait()
-	stats := e.frontier.Stats()
+	stats := e.frontier.Stats(true)
 	e.metrics.PrintSummary(time.Since(startTime), metrics.FrontierSummary{
 		UniqueHosts:         stats.UniqueHosts,
 		PendingURLs:         stats.PendingURLs,
@@ -133,7 +133,7 @@ func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {
 
 			if e.pagesFetched%250 == 0 {
 				now := time.Now()
-				stats := e.frontier.Stats()
+				stats := e.frontier.Stats(e.cfg.ShowCrawlStats)
 
 				e.log.Info("crawl milestone",
 					zap.Int("pages_crawled", e.pagesCrawled),

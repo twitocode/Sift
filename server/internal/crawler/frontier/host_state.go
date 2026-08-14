@@ -110,6 +110,12 @@ func (hs *HostState) Timeout() {
 	hs.NextEligibleAt = time.Now().Add(hs.GetDelay())
 }
 
+func (hs *HostState) CooldownUntil(t time.Time) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	hs.NextEligibleAt = t
+}
+
 func (hs *HostState) Lock() {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()

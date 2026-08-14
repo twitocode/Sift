@@ -24,7 +24,7 @@ type FrontierStore struct {
 	seenURLs    *common.SafeMap[common.URL, struct{}]
 	bloomFilter *dedup.BloomFilter
 	crawledURLs *common.SafeMap[common.URL, struct{}]
-	dnsCache    *networking.DNSCache
+	dnsCache    dnsCache
 	metrics     *metrics.CrawlMetrics
 	cfg         *common.Config
 
@@ -77,12 +77,16 @@ func NewFrontierStore(log *zap.Logger, dnsCache *networking.DNSCache, cfg *commo
 	}
 }
 
-func (fs *FrontierStore) Stats() FrontierStats {
+func (fs *FrontierStore) Stats(includeDetails bool) FrontierStats {
 	stats := FrontierStats{
 		UniqueHosts: fs.hosts.Length(),
 	}
-	now := time.Now()
 
+	if !includeDetails {
+		return stats
+	}
+
+	now := time.Now()
 	fs.hosts.Range(func(_ common.URL, queue *HostState) bool {
 		queue.mu.Lock()
 		pending := len(queue.URLs)
@@ -260,10 +264,16 @@ func (fs *FrontierStore) FindAvailableJobs() ([]SpiderJob, error) {
 		return []SpiderJob{}, nil
 	}
 
-	for range availableSlots {
+	for len(jobs) < availableSlots {
 		host := fs.readyHosts.Pop()
 		if host == nil {
 			break
+		}
+
+		if until, failed := fs.dnsCache.FailedUntil(host.Host.String()); failed {
+			host.CooldownUntil(until)
+			fs.cooldownHosts.Add(host)
+			continue
 		}
 
 		var earliestUrl common.URL
