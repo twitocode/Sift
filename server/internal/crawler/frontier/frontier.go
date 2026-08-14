@@ -15,7 +15,9 @@ import (
 )
 
 type FrontierStore struct {
-	bufferQueues *common.SafeMap[common.URL, *BQueue]
+	hosts *common.SafeMap[common.URL, *BQueue]
+  readyHosts *common.SafeMap[common.URL, *BQueue]
+  cooldownHosts *common.SafeMap[common.URL, *BQueue] //TODO: convert to min heap
 	readyQueue   chan SpiderPayload
 	seenURLs     *common.SafeMap[common.URL, struct{}]
 	bloomFilter  *dedup.BloomFilter
@@ -55,7 +57,7 @@ func (fs *FrontierStore) ReadyQueue() <-chan SpiderPayload {
 
 func NewFrontierStore(log *zap.Logger, dnsCache *networking.DNSCache, cfg *common.Config, metrics *metrics.CrawlMetrics, blacklist map[string]struct{}) *FrontierStore {
 	return &FrontierStore{
-		bufferQueues: common.NewSafeMap[common.URL, *BQueue](),
+		hosts: common.NewSafeMap[common.URL, *BQueue](),
 		readyQueue:   make(chan SpiderPayload, cfg.SpiderCount),
 		seenURLs:     common.NewSafeMap[common.URL, struct{}](),
 		crawledURLs:  common.NewSafeMap[common.URL, struct{}](),
@@ -72,15 +74,15 @@ func NewFrontierStore(log *zap.Logger, dnsCache *networking.DNSCache, cfg *commo
 
 func (fs *FrontierStore) Stats() FrontierStats {
 	stats := FrontierStats{
-		UniqueHosts: fs.bufferQueues.Length(),
+		UniqueHosts: fs.hosts.Length(),
 	}
 	now := time.Now()
 
-	fs.bufferQueues.Range(func(_ common.URL, queue *BQueue) bool {
+	fs.hosts.Range(func(_ common.URL, queue *BQueue) bool {
 		queue.mu.Lock()
 		pending := len(queue.URLs)
 		locked := queue.Locked
-		staleUntil := queue.StaleUntil
+		staleUntil := queue.NextEligibleAt
 		var queueAge time.Duration
 		if len(queue.QueuedAt) > 0 {
 			queueAge = now.Sub(queue.QueuedAt[0])
@@ -130,14 +132,14 @@ func (fs *FrontierStore) AddHost(ctx context.Context, newUrlToRequest common.URL
 		return
 	}
 
-	if fs.bufferQueues.Contains(hostname) {
+	if fs.hosts.Contains(hostname) {
 		return
 	}
 
 	fs.hostMu.Lock()
 	defer fs.hostMu.Unlock()
 
-	if fs.bufferQueues.Contains(hostname) || fs.bufferQueues.Length() >= fs.cfg.MaxHostQueues {
+	if fs.hosts.Contains(hostname) || fs.hosts.Length() >= fs.cfg.MaxHostQueues {
 		return
 	}
 
@@ -145,14 +147,14 @@ func (fs *FrontierStore) AddHost(ctx context.Context, newUrlToRequest common.URL
 		Host:       hostname,
 		URLs:       []common.URL{},
 		Locked:     false,
-		StaleUntil: time.Now(),
+		NextEligibleAt: time.Now(),
 	}
 
-	fs.bufferQueues.Set(hostname, queue)
+	fs.hosts.Set(hostname, queue)
 }
 
 func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *SpiderPayload) {
-	_, exists := fs.bufferQueues.Get(job.host)
+	_, exists := fs.hosts.Get(job.host)
 	if exists {
 		select {
 		case <-ctx.Done():
@@ -185,7 +187,7 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, newUrlToRequest common
 		return
 	}
 
-	bQueue, exists := fs.bufferQueues.Get(hostname)
+	bQueue, exists := fs.hosts.Get(hostname)
 	if !exists {
 		return
 	}
@@ -246,7 +248,7 @@ func (fs *FrontierStore) ProcessPage(ctx context.Context, page *common.Page) err
 	fs.bloomFilter.Insert(finalURL)
 	fs.crawledURLs.Set(finalURL, struct{}{})
 
-	bQueue, exists := fs.bufferQueues.Get(page.Host)
+	bQueue, exists := fs.hosts.Get(page.Host)
 	if !exists {
 		fs.log.Fatal("Buffer queue should exist but doesn't", zap.String("host", page.Host.String()))
 	}
@@ -282,7 +284,7 @@ func (fs *FrontierStore) FindAvailableJobs() ([]SpiderPayload, error) {
   } 
 
   hosts := make([]common.URL, 0)
-  fs.bufferQueues.Range(func(host common.URL, queue *BQueue) bool {
+  fs.hosts.Range(func(host common.URL, queue *BQueue) bool {
     hosts =append(hosts, host)
     return true
   })
@@ -299,7 +301,7 @@ func (fs *FrontierStore) FindAvailableJobs() ([]SpiderPayload, error) {
 
   for i := 0; i < n && len(jobs) < availableSlots; i++ {
     host := hosts[(start + i)%n]
-    queue, exists := fs.bufferQueues.Get(host)
+    queue, exists := fs.hosts.Get(host)
 
     if !exists {
       continue
@@ -335,7 +337,7 @@ func (fs *FrontierStore) FindAvailableJobs() ([]SpiderPayload, error) {
 func (fs *FrontierStore) HandleSpiderFail(payload SpiderPayload) {
 	fs.seenURLs.Delete(payload.url)
 
-	bQueue, exists := fs.bufferQueues.Get(payload.host)
+	bQueue, exists := fs.hosts.Get(payload.host)
 	if exists {
 		bQueue.TryUnlock()
 	}
@@ -361,11 +363,11 @@ func (fs *FrontierStore) SanitizeURL(link common.URL) (common.URL, error) {
 }
 
 func (fs *FrontierStore) FreeHosts() {
-	fs.bufferQueues.Range(func(url common.URL, bQueue *BQueue) bool {
+	fs.hosts.Range(func(url common.URL, bQueue *BQueue) bool {
 		bQueue.mu.Lock()
 		defer bQueue.mu.Unlock()
 
-		if bQueue.Locked && !bQueue.StaleUntil.IsZero() && time.Now().After(bQueue.StaleUntil) {
+		if bQueue.Locked && !bQueue.NextEligibleAt.IsZero() && time.Now().After(bQueue.NextEligibleAt) {
 			bQueue.Locked = false
 		}
 
@@ -374,7 +376,7 @@ func (fs *FrontierStore) FreeHosts() {
 }
 
 func (fs *FrontierStore) GetBufferCount() int {
-	return fs.bufferQueues.Length()
+	return fs.hosts.Length()
 }
 
 func (fs *FrontierStore) claimURL(url common.URL) bool {

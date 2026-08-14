@@ -12,11 +12,13 @@ import (
 )
 
 type BQueue struct {
-	Host            common.URL
-	URLs            []common.URL
-	QueuedAt        []time.Time
-	Locked          bool
-	StaleUntil      time.Time
+	Host           common.URL
+	URLs           []common.URL
+	QueuedAt       []time.Time
+	Locked         bool
+	NextEligibleAt time.Time
+
+  //stats
 	DiscoveredCount atomic.Int64
 	SkippedCount    atomic.Int64
 	DispatchCount   atomic.Int64
@@ -27,7 +29,7 @@ type BQueue struct {
 func (b *BQueue) IsAvailable() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return !b.Locked && time.Now().After(b.StaleUntil)
+	return !b.Locked && time.Now().After(b.NextEligibleAt)
 }
 
 func (b *BQueue) Len() int {
@@ -73,12 +75,12 @@ func (b *BQueue) TryLock() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.Locked || !time.Now().After(b.StaleUntil) {
+	if b.Locked || !time.Now().After(b.NextEligibleAt) {
 		return false
 	}
 
 	b.Locked = true
-	b.StaleUntil = time.Time{}
+	b.NextEligibleAt = time.Time{}
 	return true
 }
 
@@ -92,7 +94,7 @@ func (b *BQueue) Unlock() {
 func (b *BQueue) Timeout() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.StaleUntil = time.Now().Add(b.GetDelay())
+	b.NextEligibleAt = time.Now().Add(b.GetDelay())
 }
 
 func (b *BQueue) Lock() {
@@ -106,7 +108,7 @@ func (b *BQueue) TryUnlock() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if !time.Now().After(b.StaleUntil) {
+	if !time.Now().After(b.NextEligibleAt) {
 		return errors.New("Buffer queue not available yet")
 	}
 	b.Locked = false
@@ -119,7 +121,7 @@ func (b *BQueue) CanDelete(now time.Time) bool {
 
 	return len(b.URLs) == 0 &&
 		!b.Locked &&
-		now.After(b.StaleUntil)
+		now.After(b.NextEligibleAt)
 }
 
 func (b *BQueue) GetDelay() time.Duration {
