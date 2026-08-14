@@ -33,5 +33,15 @@ func (q *HostQueue) Pop() *HostState {
 	q.items[q.head] = nil
 	q.head++
 
+	if q.head == len(q.items) {
+		q.items = q.items[:0]
+		q.head = 0
+	} else if q.head >= 1024 && q.head*2 >= len(q.items) {
+		remaining := copy(q.items, q.items[q.head:])
+		clear(q.items[remaining:])
+		q.items = q.items[:remaining]
+		q.head = 0
+	}
+
 	return host
 }

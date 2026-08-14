@@ -101,35 +101,30 @@ func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {
 	timerC = timer.C
 
 	for {
-		duration := e.frontier.GetTimerCooldown()
-		wait := time.Until(duration)
-		wait = max(0, wait)
-
 		if !timer.Stop() {
 			select {
 			case <-timer.C:
 			default:
 			}
 		}
-		timer.Reset(wait)
+
+		deadline, hasCooldown := e.frontier.GetTimerCooldown()
+		if hasCooldown {
+			timer.Reset(max(0, time.Until(deadline)))
+			timerC = timer.C
+		} else {
+			timerC = nil
+		}
 
 		select {
 		case <-ctx.Done():
 			return
 		case <-timerC:
 			e.frontier.FreeExpiredHosts(time.Now())
-			potentialJobs, err := e.frontier.FindAvailableJobs()
-
-			if err != nil {
-				continue
-			}
-
-			for _, job := range potentialJobs {
-				e.frontier.DispatchJob(ctx, &job)
-			}
+			e.dispatchAvailableJobs(ctx)
 
 		case <-e.frontier.SchedulerWake():
-			continue
+			e.dispatchAvailableJobs(ctx)
 
 		case page := <-e.pageReceiveChan:
 			if page == nil {
@@ -191,6 +186,17 @@ func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {
 		case job := <-e.spiderFailChan:
 			e.frontier.HandleSpiderFail(job)
 		}
+	}
+}
+
+func (e *Engine) dispatchAvailableJobs(ctx context.Context) {
+	potentialJobs, err := e.frontier.FindAvailableJobs()
+	if err != nil {
+		return
+	}
+
+	for _, job := range potentialJobs {
+		e.frontier.DispatchJob(ctx, &job)
 	}
 }
 

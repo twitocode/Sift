@@ -110,10 +110,10 @@ func (fs *FrontierStore) Stats() FrontierStats {
 		}
 		if locked {
 			stats.LockedHosts++
-			if !staleUntil.IsZero() && now.Before(staleUntil) {
-				stats.CooldownHosts++
-			}
-		} else if staleUntil.IsZero() || now.After(staleUntil) {
+		}
+		if !staleUntil.IsZero() && now.Before(staleUntil) {
+			stats.CooldownHosts++
+		} else if !locked {
 			stats.AvailableHosts++
 		}
 
@@ -140,20 +140,19 @@ func (fs *FrontierStore) AddOrRetrieveHost(ctx context.Context, newUrlToRequest 
 	state, exists := fs.hosts.Get(hostname)
 
 	if exists {
-		if state.IsAvailable() &&
-			state.IsScheduled.CompareAndSwap(false, true) {
-			fs.readyHosts.Push(state)
-			fs.signalScheduler()
-		}
-
 		return state, nil
 	}
 
 	fs.hostMu.Lock()
 	defer fs.hostMu.Unlock()
 
+	state, exists = fs.hosts.Get(hostname)
+	if exists {
+		return state, nil
+	}
+
 	if fs.hosts.Length() >= fs.cfg.MaxHostQueues {
-		return nil, errors.New("text string")
+		return nil, errors.New("maximum host queues reached")
 	}
 
 	state = &HostState{
@@ -164,8 +163,6 @@ func (fs *FrontierStore) AddOrRetrieveHost(ctx context.Context, newUrlToRequest 
 	}
 
 	fs.hosts.Set(hostname, state)
-	fs.readyHosts.Push(state)
-	fs.signalScheduler()
 	return state, nil
 }
 
@@ -178,19 +175,30 @@ func (fs *FrontierStore) AddLink(ctx context.Context, host *HostState, newUrlToR
 		return
 	}
 
-	//simplified so that it does not add to ready queue asap (might change back later)
+	if !fs.claimURL(sanitizedURL) {
+		return
+	}
 
 	/*
 		Policy: if the number of urls we are tracking is larger than the max OR the number of urls in the host is at max then DONT enqueue
 	*/
+	host.DiscoveredCount.Add(1)
 	if fs.pending.Load() < int32(fs.cfg.MaxPendingURLs) {
 		if host.Enqueue(sanitizedURL, fs.cfg.MaxURLsPerHost) {
 			fs.pending.Add(1)
+
+			if host.IsAvailable() && host.IsScheduled.CompareAndSwap(false, true) {
+				fs.readyHosts.Push(host)
+				fs.signalScheduler()
+			}
 		} else {
+			fs.seenURLs.Delete(sanitizedURL)
 			host.SkippedCount.Add(1)
 			fs.metrics.URLsSkippedAtLimit.Add(1)
 		}
 	} else {
+		fs.seenURLs.Delete(sanitizedURL)
+		host.SkippedCount.Add(1)
 		fs.metrics.URLsSkippedAtLimit.Add(1)
 	}
 }
@@ -215,14 +223,6 @@ func (fs *FrontierStore) AfterPageProcessed(ctx context.Context, page *common.Pa
 		return nil
 	}
 
-	host.DiscoveredCount.Add(1)
-
-	if host.Len() <= 0 {
-		fs.hosts.Delete(host.Host)
-		return nil
-	}
-
-	host.IsScheduled.Store(false)
 	host.Timeout()
 	fs.cooldownHosts.Add(host)
 	fs.signalScheduler()
@@ -263,7 +263,7 @@ func (fs *FrontierStore) FindAvailableJobs() ([]SpiderJob, error) {
 	for range availableSlots {
 		host := fs.readyHosts.Pop()
 		if host == nil {
-			continue
+			break
 		}
 
 		var earliestUrl common.URL
@@ -274,6 +274,7 @@ func (fs *FrontierStore) FindAvailableJobs() ([]SpiderJob, error) {
 				break
 			}
 			earliestUrl = host.Dequeue()
+			fs.pending.Add(-1)
 			if fs.HasLinkBeenCrawled(earliestUrl) {
 				continue
 			}
@@ -282,8 +283,11 @@ func (fs *FrontierStore) FindAvailableJobs() ([]SpiderJob, error) {
 		}
 
 		if earliestUrl == "" {
-			host.Unlock()
-			break
+			if host.HasWorkOrDeactivate() {
+				fs.readyHosts.Push(host)
+				fs.signalScheduler()
+			}
+			continue
 		}
 
 		newJob := SpiderJob{
@@ -292,8 +296,7 @@ func (fs *FrontierStore) FindAvailableJobs() ([]SpiderJob, error) {
 			dialerContext: fs.dnsCache.DialContext,
 		}
 
-		fs.pending.Add(-1)
-
+		host.DispatchCount.Add(1)
 		jobs = append(jobs, newJob)
 	}
 
@@ -301,6 +304,16 @@ func (fs *FrontierStore) FindAvailableJobs() ([]SpiderJob, error) {
 }
 
 func (fs *FrontierStore) HandleSpiderFail(job SpiderJob) {
+	fs.seenURLs.Delete(job.url)
+
+	host, exists := fs.hosts.Get(job.hostname)
+	if !exists {
+		return
+	}
+
+	host.Timeout()
+	fs.cooldownHosts.Add(host)
+	fs.signalScheduler()
 }
 
 func (fs *FrontierStore) HasLinkBeenCrawled(link common.URL) bool {
@@ -334,10 +347,8 @@ func (fs *FrontierStore) FreeExpiredHosts(now time.Time) {
 
 		if now.After(rootHost.NextEligibleAt) {
 			rootHost, _ = fs.cooldownHosts.Poll()
-			if rootHost.Len() > 0 {
+			if rootHost.HasWorkOrDeactivate() {
 				fs.readyHosts.Push(rootHost)
-			} else {
-				fs.hosts.Delete(rootHost.Host)
 			}
 			continue
 		}
@@ -346,12 +357,12 @@ func (fs *FrontierStore) FreeExpiredHosts(now time.Time) {
 	}
 }
 
-func (fs *FrontierStore) GetTimerCooldown() time.Time {
+func (fs *FrontierStore) GetTimerCooldown() (time.Time, bool) {
 	rootHost, err := fs.cooldownHosts.Peek()
 	if err != nil {
-		return time.Now()
+		return time.Time{}, false
 	}
-	return rootHost.NextEligibleAt
+	return rootHost.NextEligibleAt, true
 }
 
 func (fs *FrontierStore) SchedulerWake() <-chan struct{} {
@@ -363,6 +374,14 @@ func (fs *FrontierStore) signalScheduler() {
 	case fs.wakeScheduler <- struct{}{}:
 	default:
 	}
+}
+
+func (fs *FrontierStore) claimURL(url common.URL) bool {
+	if fs.crawledURLs.Contains(url) {
+		return false
+	}
+
+	return fs.seenURLs.SetIfAbsent(url, struct{}{})
 }
 
 func IsDomainBlacklisted(domain string, blacklist map[string]struct{}) bool {

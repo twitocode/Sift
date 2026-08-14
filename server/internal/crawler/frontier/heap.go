@@ -38,6 +38,10 @@ func (mh *CooldownHeap) Peek() (*HostState, error) {
 
 // Extracts minimum element
 func (mh *CooldownHeap) Poll() (*HostState, error) {
+	if mh.size == 0 {
+		return nil, errors.New("heap is empty")
+	}
+
 	item := mh.values[0]
 	last := mh.size - 1
 

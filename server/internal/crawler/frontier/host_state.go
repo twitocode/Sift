@@ -92,6 +92,18 @@ func (hs *HostState) Unlock() {
 	hs.Locked = false
 }
 
+func (hs *HostState) HasWorkOrDeactivate() bool {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	if len(hs.URLs) > 0 {
+		return true
+	}
+
+	hs.IsScheduled.Store(false)
+	return false
+}
+
 func (hs *HostState) Timeout() {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
