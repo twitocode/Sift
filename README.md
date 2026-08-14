@@ -70,3 +70,8 @@ For content deduplication i ended up first finding combinations of pages that ha
 The other approach is for pages that do not have one in which i use a simhash to determine similar pages and then clustering them together. Then the algorithm chooses a page to be the canonical one based on a multitude of factors.
 
 Learned how to use the union-find algorithm for clustering together like pages
+
+
+I had a few very nasty bugs. One of them was that my indexing stage was receiving a smaller number of pages that i thought were stored inside the db. The main issue was a race condition inside the crawl frontier where multiple goroutines would try to check whether the same url has been dispatched or not, right before the db would try to insert a new page, another spider could have already refetched the same url and tried to add it to the db. Before i was using INSERT OR REPLACE which causes duplicates to override one another while also tricking the system into thinking that a brand new page was crawled. 
+
+A fatal flaw with this system currently is that it process very fast when its buffer queues are from hosts that do not appear frequently, but slows down when urls being added are added to buffer queues with frequent cooldowns. 

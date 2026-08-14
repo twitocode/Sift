@@ -1,4 +1,4 @@
-package indexer
+package metrics
 
 import (
 	"fmt"
@@ -39,12 +39,12 @@ func NewIndexerMetrics(log *zap.Logger) *IndexerMetrics {
 	}
 }
 
-func (cm *IndexerMetrics) PrintSummary(duration time.Duration) {
-	cm.log.Info("Crawling Summary")
+func (im *IndexerMetrics) PrintSummary(duration time.Duration) {
+	im.log.Info("Crawling Summary")
 
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
-	rows := getRows(cm, mem, duration)
+	rows := im.getRows(mem, duration)
 
 	var (
 		purple    = lipgloss.Color("99")
@@ -77,19 +77,19 @@ func (cm *IndexerMetrics) PrintSummary(duration time.Duration) {
 	lipgloss.Println(t)
 }
 
-func getRows(cm *IndexerMetrics, mem runtime.MemStats, duration time.Duration) [][]string {
+func (im *IndexerMetrics) getRows(mem runtime.MemStats, duration time.Duration) [][]string {
 	return [][]string{
-		{"Documents Read", strconv.FormatInt(cm.DocumentsRead.Load(), 10)},
-		{"Documents Indexed", strconv.FormatInt(cm.DocumentsIndexed.Load(), 10)},
-		{"Body Tokens", strconv.FormatInt(cm.BodyTokens.Load(), 10)},
-		{"Title Tokens", strconv.FormatInt(cm.TitleTokens.Load(), 10)},
-		{"Total Tokens", strconv.FormatInt(cm.TotalTokens.Load(), 10)},
-		{"Unique Terms", strconv.FormatInt(cm.UniqueTerms.Load(), 10)},
-		{"Total Postings", strconv.FormatInt(cm.TotalPostings.Load(), 10)},
-		{"Title Postings", strconv.FormatInt(cm.TitlePostings.Load(), 10)},
-		{"Documents Stored", strconv.FormatInt(cm.DocumentsStored.Load(), 10)},
-		{"Flushes", strconv.FormatInt(cm.Flushes.Load(), 10)},
-		{"Store Errors", strconv.FormatInt(cm.StoreErrors.Load(), 10)},
+		{"Documents Read", strconv.FormatInt(im.DocumentsRead.Load(), 10)},
+		{"Documents Indexed", strconv.FormatInt(im.DocumentsIndexed.Load(), 10)},
+		{"Body Tokens", strconv.FormatInt(im.BodyTokens.Load(), 10)},
+		{"Title Tokens", strconv.FormatInt(im.TitleTokens.Load(), 10)},
+		{"Total Tokens", strconv.FormatInt(im.TotalTokens.Load(), 10)},
+		{"Unique Terms", strconv.FormatInt(im.UniqueTerms.Load(), 10)},
+		{"Total Postings", strconv.FormatInt(im.TotalPostings.Load(), 10)},
+		{"Title Postings", strconv.FormatInt(im.TitlePostings.Load(), 10)},
+		{"Documents Stored", strconv.FormatInt(im.DocumentsStored.Load(), 10)},
+		{"Flushes", strconv.FormatInt(im.Flushes.Load(), 10)},
+		{"Store Errors", strconv.FormatInt(im.StoreErrors.Load(), 10)},
 		{"Time Elapsed", fmt.Sprintf("%.2f", duration.String())},
 	}
 }

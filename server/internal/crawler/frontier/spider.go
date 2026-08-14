@@ -1,4 +1,4 @@
-package crawler
+package frontier
 
 import (
 	"context"
@@ -6,17 +6,19 @@ import (
 	"net/http"
 
 	"github.com/twitocode/sift/internal/common"
+	"github.com/twitocode/sift/internal/crawler/networking"
+	"github.com/twitocode/sift/internal/metrics"
 	"go.uber.org/zap"
 )
 
 type Spider struct {
 	id           int
-	jobs         <-chan Payload
-	sendChan     chan<- *Page
-	httpFailChan chan<- Payload
+	jobs         <-chan SpiderPayload
+	sendChan     chan<- *common.Page
+	httpFailChan chan<- SpiderPayload
 	log          *zap.Logger
 	client       *http.Client
-	metrics      *CrawlMetrics
+	metrics      *metrics.CrawlMetrics
 }
 
 var allowedContentTypes = []string{
@@ -25,7 +27,7 @@ var allowedContentTypes = []string{
 	"application/pdf",
 }
 
-func NewSpider(id int, log *zap.Logger, client *http.Client, jobs <-chan Payload, sendChan chan<- *Page, httpFailChan chan<- Payload, dialerContext DialerContext, metrics *CrawlMetrics) *Spider {
+func NewSpider(id int, log *zap.Logger, client *http.Client, jobs <-chan SpiderPayload, sendChan chan<- *common.Page, httpFailChan chan<- SpiderPayload, dialerContext networking.DialerContext, metrics *metrics.CrawlMetrics) *Spider {
 	return &Spider{
 		id,
 		jobs,
@@ -99,7 +101,7 @@ func (sp *Spider) Walk(ctx context.Context) {
 					//sp.log.Warn("Invalid content", zap.String("url", job.url.String()), zap.String("type", contentType))
 				}
 
-				var page *Page
+				var page *common.Page
 
 				//TODO: change to isValidContentType
 				if !isPDF(contentType) {
@@ -113,8 +115,8 @@ func (sp *Spider) Walk(ctx context.Context) {
 						return false
 					}
 				} else {
-					page = &Page{
-						FinalURL:       URL(res.Request.URL.String()),
+					page = &common.Page{
+						FinalURL:       common.URL(res.Request.URL.String()),
 						Host:           job.host,
 						InEnglish:      false,
 						HasBeenCrawled: false,

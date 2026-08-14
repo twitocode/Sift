@@ -1,13 +1,12 @@
 package main
 
 import (
-	"context"
 	"database/sql"
 	"os"
 
 	"github.com/twitocode/sift/internal/common"
-	"github.com/twitocode/sift/internal/crawler"
 	"github.com/twitocode/sift/internal/indexer"
+	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
 
 	_ "modernc.org/sqlite"
@@ -24,6 +23,7 @@ func main() {
 	}
 	log.Info("Connected to Sqlite")
 
-	store := crawler.NewPageStore(sqliteDb, log)
-	indexer.NewIndexer(log, store).Start(context.Background())
+	pageStore := store.NewPageStore(sqliteDb, log)
+	indexStore := indexer.NewIndexerStore(sqliteDb, log)
+	indexer.NewIndexer(log, pageStore, indexStore).Start()
 }

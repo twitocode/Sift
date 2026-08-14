@@ -1,4 +1,4 @@
-package crawler
+package common
 
 import (
 	"errors"
@@ -19,6 +19,10 @@ func (u URL) normalizeString() URL {
 	}
 
 	return URL(s)
+}
+
+func (u URL) NormalizeString() URL {
+	return u.normalizeString()
 }
 
 func (u URL) GetDomain() (string, error) {

@@ -1,4 +1,4 @@
-package crawler
+package dedup
 
 import (
 	"context"
@@ -6,21 +6,22 @@ import (
 	"strings"
 
 	"github.com/twitocode/sift/internal/common"
+	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
 )
 
 type Deduplicator struct {
-	store *PageStore
+	store *store.PageStore
 	log   *zap.Logger
 	index *SimHashIndex
 }
 
 type CanonicalInfo struct {
-	page    *Page
-	similar []*Page
+	page    *common.Page
+	similar []*common.Page
 }
 
-func NewDeduplicator(store *PageStore, log *zap.Logger) *Deduplicator {
+func NewDeduplicator(store *store.PageStore, log *zap.Logger) *Deduplicator {
 	return &Deduplicator{
 		store: store,
 		index: NewSimHashIndex(3),
@@ -38,8 +39,8 @@ func (d *Deduplicator) Start(ctx context.Context) {
 func (d *Deduplicator) HandleCanonicDuplicates(ctx context.Context) {
 	pages, err := d.store.FindCanonicDuplicatesPages(ctx)
 
-	canonicals := make(map[URL]*CanonicalInfo)
-	unfiltered := make([]*Page, 0)
+	canonicals := make(map[common.URL]*CanonicalInfo)
+	unfiltered := make([]*common.Page, 0)
 
 	if err != nil {
 		d.log.Fatal("Could not get pages", zap.Error(err))
@@ -56,7 +57,7 @@ func (d *Deduplicator) HandleCanonicDuplicates(ctx context.Context) {
 		if IsProbablyCanonical(page) {
 			canonicals[page.FoundCanonical] = &CanonicalInfo{
 				page:    page,
-				similar: make([]*Page, 0),
+				similar: make([]*common.Page, 0),
 			}
 			page.ResolvedCanonical = true
 			continue //TODO: HANDLE LATER
@@ -68,7 +69,7 @@ func (d *Deduplicator) HandleCanonicDuplicates(ctx context.Context) {
 	d.ReconcileConflicts(canonicals, unfiltered)
 
 	for _, v := range canonicals {
-		d.store.BatchAssignCanonical(ctx, v.page.ID, common.Map(v.similar, func(e *Page, _ int) (int64, bool) {
+		d.store.BatchAssignCanonical(ctx, v.page.ID, common.Map(v.similar, func(e *common.Page, _ int) (int64, bool) {
 			return e.ID, true
 		}))
 	}
@@ -111,8 +112,8 @@ func (d *Deduplicator) HandleRandomDuplicates(ctx context.Context) {
 	}
 }
 
-func PageIndex(pages []*Page, page *Page) int {
-	i, _ := slices.BinarySearchFunc(pages, page, func(e *Page, t *Page) int {
+func PageIndex(pages []*common.Page, page *common.Page) int {
+	i, _ := slices.BinarySearchFunc(pages, page, func(e *common.Page, t *common.Page) int {
 		if e.ID == t.ID {
 			return 0
 		} else if t.ID < e.ID {
@@ -124,7 +125,7 @@ func PageIndex(pages []*Page, page *Page) int {
 	return i
 }
 
-func (d *Deduplicator) ReconcileConflicts(canonicals map[URL]*CanonicalInfo, pages []*Page) {
+func (d *Deduplicator) ReconcileConflicts(canonicals map[common.URL]*CanonicalInfo, pages []*common.Page) {
 	for _, page := range pages {
 		foundInfo, ok := canonicals[page.FoundCanonical]
 
@@ -136,7 +137,7 @@ func (d *Deduplicator) ReconcileConflicts(canonicals map[URL]*CanonicalInfo, pag
 	}
 }
 
-func (d *Deduplicator) ReconcileClusterConflicts(ctx context.Context, cluster []int, pages []*Page) {
+func (d *Deduplicator) ReconcileClusterConflicts(ctx context.Context, cluster []int, pages []*common.Page) {
 	ranks := make([]int, len(cluster))
 
 	//find canonicals
@@ -185,7 +186,7 @@ func (d *Deduplicator) ReconcileClusterConflicts(ctx context.Context, cluster []
 		}
 	}
 
-	var electedPage *Page
+	var electedPage *common.Page
 	if len(candidates) == 1 {
 		electedPage = pages[candidates[0]]
 	}
@@ -215,8 +216,8 @@ func (d *Deduplicator) ReconcileClusterConflicts(ctx context.Context, cluster []
 	d.store.BatchAssignCanonical(ctx, electedPage.ID, duplicates)
 }
 
-func findByFingerprint(pages []*Page, f uint64) *Page {
-	i := slices.IndexFunc(pages, func(page *Page) bool {
+func findByFingerprint(pages []*common.Page, f uint64) *common.Page {
+	i := slices.IndexFunc(pages, func(page *common.Page) bool {
 		return page.ContentHash == f
 	})
 
@@ -227,8 +228,8 @@ func findByFingerprint(pages []*Page, f uint64) *Page {
 	return pages[i]
 }
 
-func findByUrl(pages []*Page, u URL) *Page {
-	i := slices.IndexFunc(pages, func(page *Page) bool {
+func findByUrl(pages []*common.Page, u common.URL) *common.Page {
+	i := slices.IndexFunc(pages, func(page *common.Page) bool {
 		return page.FinalURL == u
 	})
 
@@ -239,9 +240,9 @@ func findByUrl(pages []*Page, u URL) *Page {
 	return pages[i]
 }
 
-func IsProbablyCanonical(page *Page) bool {
+func IsProbablyCanonical(page *common.Page) bool {
 	return page.FinalURL == page.FoundCanonical || page.FinalURL == page.FoundCanonical+"/" || page.FinalURL == page.FoundCanonical+".html" || page.FinalURL == page.FoundCanonical+"/index.html"
 }
-func IsCanonicalOwner(page *Page, other *Page) bool {
+func IsCanonicalOwner(page *common.Page, other *common.Page) bool {
 	return other.FoundCanonical == page.FinalURL || other.FoundCanonical == page.FinalURL+"/" || other.FoundCanonical == page.FinalURL+".html" || other.FoundCanonical == page.FinalURL+"/index.html"
 }

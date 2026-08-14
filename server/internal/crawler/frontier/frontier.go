@@ -1,4 +1,4 @@
-package crawler
+package frontier
 
 import (
 	"context"
@@ -8,17 +8,20 @@ import (
 	"time"
 
 	"github.com/twitocode/sift/internal/common"
+	"github.com/twitocode/sift/internal/crawler/dedup"
+	"github.com/twitocode/sift/internal/crawler/networking"
+	"github.com/twitocode/sift/internal/metrics"
 	"go.uber.org/zap"
 )
 
 type FrontierStore struct {
-	bufferQueues *common.SafeMap[URL, *BQueue]
-	readyQueue   chan Payload
-	seenURLs     *common.SafeMap[URL, struct{}]
-	bloomFilter  *BloomFilter
-	crawledURLs  *common.SafeMap[URL, struct{}]
-	dnsCache     *DNSCache
-	metrics      *CrawlMetrics
+	bufferQueues *common.SafeMap[common.URL, *BQueue]
+	readyQueue   chan SpiderPayload
+	seenURLs     *common.SafeMap[common.URL, struct{}]
+	bloomFilter  *dedup.BloomFilter
+	crawledURLs  *common.SafeMap[common.URL, struct{}]
+	dnsCache     *networking.DNSCache
+	metrics      *metrics.CrawlMetrics
 	cfg          *common.Config
 
 	blacklist map[string]struct{}
@@ -39,17 +42,21 @@ type FrontierStats struct {
 	AvailableHosts int
 }
 
-func NewFrontierStore(log *zap.Logger, dnsCache *DNSCache, cfg *common.Config, metrics *CrawlMetrics) *FrontierStore {
+func (fs *FrontierStore) ReadyQueue() <-chan SpiderPayload {
+	return fs.readyQueue
+}
+
+func NewFrontierStore(log *zap.Logger, dnsCache *networking.DNSCache, cfg *common.Config, metrics *metrics.CrawlMetrics, blacklist map[string]struct{}) *FrontierStore {
 	return &FrontierStore{
-		bufferQueues: common.NewSafeMap[URL, *BQueue](),
-		readyQueue:   make(chan Payload, cfg.SpiderCount),
-		seenURLs:     common.NewSafeMap[URL, struct{}](),
-		crawledURLs:  common.NewSafeMap[URL, struct{}](),
-		bloomFilter:  NewBloomFilter(float64(cfg.CrawlCount*2), 0.01),
+		bufferQueues: common.NewSafeMap[common.URL, *BQueue](),
+		readyQueue:   make(chan SpiderPayload, cfg.SpiderCount),
+		seenURLs:     common.NewSafeMap[common.URL, struct{}](),
+		crawledURLs:  common.NewSafeMap[common.URL, struct{}](),
+		bloomFilter:  dedup.NewBloomFilter(float64(cfg.CrawlCount*2), 0.01),
 		dnsCache:     dnsCache,
 		workers:      cfg.SpiderCount,
 		log:          log,
-		blacklist:    GenerateBlacklistMap(DefaultBlacklistedDomains),
+		blacklist:    blacklist,
 
 		metrics: metrics,
 		cfg:     cfg,
@@ -60,7 +67,7 @@ func (fs *FrontierStore) Stats() FrontierStats {
 	stats := FrontierStats{}
 	now := time.Now()
 
-	fs.bufferQueues.Range(func(_ URL, queue *BQueue) bool {
+	fs.bufferQueues.Range(func(_ common.URL, queue *BQueue) bool {
 		queue.mu.Lock()
 		pending := len(queue.URLs)
 		locked := queue.Locked
@@ -87,7 +94,7 @@ func (fs *FrontierStore) Stats() FrontierStats {
 	return stats
 }
 
-func (fs *FrontierStore) AddHost(ctx context.Context, newUrlToRequest URL) {
+func (fs *FrontierStore) AddHost(ctx context.Context, newUrlToRequest common.URL) {
 	hostname, err := newUrlToRequest.GetHost()
 
 	if err != nil {
@@ -114,7 +121,7 @@ func (fs *FrontierStore) AddHost(ctx context.Context, newUrlToRequest URL) {
 
 	queue := &BQueue{
 		Host:       hostname,
-  URLs:       []URL{},
+		URLs:       []common.URL{},
 		Locked:     false,
 		StaleUntil: time.Now(),
 	}
@@ -122,7 +129,7 @@ func (fs *FrontierStore) AddHost(ctx context.Context, newUrlToRequest URL) {
 	fs.bufferQueues.Set(hostname, queue)
 }
 
-func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *Payload) {
+func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *SpiderPayload) {
 	_, exists := fs.bufferQueues.Get(job.host)
 	if exists {
 		select {
@@ -133,7 +140,7 @@ func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *Payload) {
 	}
 }
 
-func (fs *FrontierStore) HasLinkBeenCrawled(link URL) bool {
+func (fs *FrontierStore) HasLinkBeenCrawled(link common.URL) bool {
 	if fs.bloomFilter.ProbablyContains(link) {
 		return fs.crawledURLs.Contains(link)
 	}
@@ -141,7 +148,7 @@ func (fs *FrontierStore) HasLinkBeenCrawled(link URL) bool {
 	return false
 }
 
-func (fs *FrontierStore) ProcessLink(ctx context.Context, newUrlToRequest URL) {
+func (fs *FrontierStore) ProcessLink(ctx context.Context, newUrlToRequest common.URL) {
 	sanitizedURL, err := fs.SanitizeURL(newUrlToRequest)
 	if err != nil {
 		fs.log.Debug("Website not allowed", zap.String("url", newUrlToRequest.String()))
@@ -169,7 +176,7 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, newUrlToRequest URL) {
 
 	if readyQueueAvailable && bQueue.TryLock() {
 		bQueue.DiscoveredCount.Add(1)
-		payload := Payload{
+		payload := SpiderPayload{
 			url:           sanitizedURL,
 			host:          hostname,
 			dialerContext: fs.dnsCache.DialContext,
@@ -202,9 +209,9 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, newUrlToRequest URL) {
 	}
 }
 
-func (fs *FrontierStore) ProcessPage(ctx context.Context, page *Page) error {
-	requestedURL := page.RequestedURL.normalizeString()
-	finalURL := page.FinalURL.normalizeString()
+func (fs *FrontierStore) ProcessPage(ctx context.Context, page *common.Page) error {
+	requestedURL := page.RequestedURL.NormalizeString()
+	finalURL := page.FinalURL.NormalizeString()
 
 	if !fs.IsLinkDispatched(requestedURL) {
 		return errors.New("Link for some reason not available")
@@ -222,7 +229,7 @@ func (fs *FrontierStore) ProcessPage(ctx context.Context, page *Page) error {
 	}
 
 	bQueue.Timeout()
-	allowedURLs := make([]URL, 0)
+	allowedURLs := make([]common.URL, 0)
 
 	for _, link := range page.Links {
 		if fs.HasLinkBeenCrawled(link) {
@@ -243,11 +250,11 @@ func (fs *FrontierStore) Shutdown() {
 }
 
 // used for timer
-func (fs *FrontierStore) FindAvailableJobs() ([]Payload, error) {
-	jobs := make([]Payload, 0)
+func (fs *FrontierStore) FindAvailableJobs() ([]SpiderPayload, error) {
+	jobs := make([]SpiderPayload, 0)
 	i := 0
 
-	fs.bufferQueues.Range(func(host URL, queue *BQueue) bool {
+	fs.bufferQueues.Range(func(host common.URL, queue *BQueue) bool {
 		availableSlots := cap(fs.readyQueue) - len(fs.readyQueue)
 		if i >= availableSlots {
 			return false
@@ -265,7 +272,7 @@ func (fs *FrontierStore) FindAvailableJobs() ([]Payload, error) {
 					continue
 				}
 
-				jobs = append(jobs, Payload{
+				jobs = append(jobs, SpiderPayload{
 					url:           url,
 					host:          host,
 					dialerContext: fs.dnsCache.DialContext,
@@ -281,7 +288,7 @@ func (fs *FrontierStore) FindAvailableJobs() ([]Payload, error) {
 	return jobs, nil
 }
 
-func (fs *FrontierStore) HandleSpiderFail(payload Payload) {
+func (fs *FrontierStore) HandleSpiderFail(payload SpiderPayload) {
 	fs.seenURLs.Delete(payload.url)
 
 	bQueue, exists := fs.bufferQueues.Get(payload.host)
@@ -290,27 +297,27 @@ func (fs *FrontierStore) HandleSpiderFail(payload Payload) {
 	}
 }
 
-func (fs *FrontierStore) IsLinkAvailable(link URL) bool {
+func (fs *FrontierStore) IsLinkAvailable(link common.URL) bool {
 	//bloom filter and stuff
 	return !fs.HasLinkBeenCrawled(link) && !fs.seenURLs.Contains(link)
 }
 
-func (fs *FrontierStore) IsLinkDispatched(link URL) bool {
-	return fs.seenURLs.Contains(link.normalizeString())
+func (fs *FrontierStore) IsLinkDispatched(link common.URL) bool {
+	return fs.seenURLs.Contains(link.NormalizeString())
 }
 
-func (fs *FrontierStore) SanitizeURL(link URL) (URL, error) {
+func (fs *FrontierStore) SanitizeURL(link common.URL) (common.URL, error) {
 	if fs.bloomFilter.ProbablyContains(link) {
 		if fs.crawledURLs.Contains(link) {
 			return "", errors.New("Link already crawled")
 		}
 	}
 
-	return link.normalizeString(), nil
+	return link.NormalizeString(), nil
 }
 
 func (fs *FrontierStore) FreeHosts() {
-	fs.bufferQueues.Range(func(url URL, bQueue *BQueue) bool {
+	fs.bufferQueues.Range(func(url common.URL, bQueue *BQueue) bool {
 		bQueue.mu.Lock()
 		defer bQueue.mu.Unlock()
 
@@ -326,10 +333,15 @@ func (fs *FrontierStore) GetBufferCount() int {
 	return fs.bufferQueues.Length()
 }
 
-func (fs *FrontierStore) claimURL(url URL) bool {
+func (fs *FrontierStore) claimURL(url common.URL) bool {
 	if fs.crawledURLs.Contains(url) {
 		return false
 	}
 
 	return fs.seenURLs.SetIfAbsent(url, struct{}{})
+}
+
+func IsDomainBlacklisted(domain string, blacklist map[string]struct{}) bool {
+	_, found := blacklist[domain]
+	return found
 }

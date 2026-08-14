@@ -7,25 +7,26 @@ import (
 	"time"
 
 	"github.com/twitocode/sift/internal/common"
-	"github.com/twitocode/sift/internal/crawler"
+	"github.com/twitocode/sift/internal/metrics"
+	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
 )
 
 type Indexer struct {
 	log          *zap.Logger
-	pageStore    *crawler.PageStore
+	pageStore    *store.PageStore
 	indexerStore *IndexerStore
-	metrics      *IndexerMetrics
+	metrics      *metrics.IndexerMetrics
 
 	index *common.SafeMap[string, []Posting]
 }
 
-func NewIndexer(log *zap.Logger, pageStore *crawler.PageStore, indexerStore *IndexerStore) *Indexer {
+func NewIndexer(log *zap.Logger, pageStore *store.PageStore, indexerStore *IndexerStore) *Indexer {
 	return &Indexer{
 		log:          log,
 		pageStore:    pageStore,
 		indexerStore: indexerStore,
-		metrics:      NewIndexerMetrics(log),
+		metrics:      metrics.NewIndexerMetrics(log),
 		index:        common.NewSafeMap[string, []Posting](),
 	}
 }
@@ -74,7 +75,7 @@ func (in *Indexer) Start() {
 	in.metrics.PrintSummary(elapsed)
 }
 
-func (in *Indexer) Index(ctx context.Context, page *crawler.Page) *DocumentStats {
+func (in *Indexer) Index(ctx context.Context, page *common.Page) *DocumentStats {
 	textTokens := Tokenize(page.Text)
 	titleTokens := Tokenize(page.Title)
 

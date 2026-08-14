@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/twitocode/sift/internal/db"
+	"github.com/twitocode/sift/internal/metrics"
 	"go.uber.org/zap"
 )
 
@@ -17,7 +18,7 @@ type IndexerStore struct {
 	bufferChan chan *DocumentStats
 	buffer     []*DocumentStats
 	bufferSize int
-	metrics    *IndexerMetrics
+	metrics    *metrics.IndexerMetrics
 
 	mu sync.Mutex
 }
@@ -35,7 +36,7 @@ func NewIndexerStore(sqliteDb *sql.DB, log *zap.Logger) *IndexerStore {
 	}
 }
 
-func (is *IndexerStore) RunTimer(ctx context.Context, wg *sync.WaitGroup, metrics *IndexerMetrics) {
+func (is *IndexerStore) RunTimer(ctx context.Context, wg *sync.WaitGroup, metrics *metrics.IndexerMetrics) {
 	is.metrics = metrics
 
 	ticker := time.NewTicker(time.Second * 4)

@@ -1,4 +1,4 @@
-package crawler
+package store
 
 import (
 	"context"
@@ -6,15 +6,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/db"
+	"github.com/twitocode/sift/internal/metrics"
 	"go.uber.org/zap"
 )
 
 type PageStore struct {
 	sqliteDb   *sql.DB
 	queries    *db.Queries
-	bufferChan chan *Page
-	buffer     []*Page
+	bufferChan chan *common.Page
+	buffer     []*common.Page
 	bufferSize int
 	log        *zap.Logger
 
@@ -25,15 +27,15 @@ func NewPageStore(sqliteDb *sql.DB, log *zap.Logger) *PageStore {
 	bufferSize := 1024
 	return &PageStore{
 		queries:    db.New(sqliteDb),
-		bufferChan: make(chan *Page, bufferSize*2),
+		bufferChan: make(chan *common.Page, bufferSize*2),
 		sqliteDb:   sqliteDb,
 		bufferSize: bufferSize,
-		buffer:     make([]*Page, 0, bufferSize),
+		buffer:     make([]*common.Page, 0, bufferSize),
 		log:        log,
 	}
 }
 
-func (ps *PageStore) RunTimer(ctx context.Context, wg *sync.WaitGroup, metrics *CrawlMetrics) {
+func (ps *PageStore) RunTimer(ctx context.Context, wg *sync.WaitGroup, metrics *metrics.CrawlMetrics) {
 	ticker := time.NewTicker(time.Second * 4)
 	defer ticker.Stop()
 
@@ -77,7 +79,7 @@ func (ps *PageStore) RunTimer(ctx context.Context, wg *sync.WaitGroup, metrics *
 	}
 }
 
-func (ps *PageStore) flush(ctx context.Context, metrics *CrawlMetrics) {
+func (ps *PageStore) flush(ctx context.Context, metrics *metrics.CrawlMetrics) {
 	tx, err := ps.sqliteDb.Begin()
 	if err != nil {
 		ps.log.Error("Could not create page transaction", zap.Error(err))
@@ -155,7 +157,7 @@ func (ps *PageStore) Shutdown() {
 }
 
 // doing a direct insert for now
-func (ps *PageStore) Add(ctx context.Context, sm Page) error {
+func (ps *PageStore) Add(ctx context.Context, sm common.Page) error {
 	select {
 	case <-ctx.Done():
 		return nil
@@ -164,39 +166,39 @@ func (ps *PageStore) Add(ctx context.Context, sm Page) error {
 	}
 }
 
-func (ps *PageStore) Contains(ctx context.Context, url URL) (bool, error) {
+func (ps *PageStore) Contains(ctx context.Context, url common.URL) (bool, error) {
 	exists, err := ps.queries.FindPageByURL(ctx, url.String())
 	return exists != 0, err
 }
 
-func (ps *PageStore) Get(ctx context.Context, url URL) (*Page, error) {
+func (ps *PageStore) Get(ctx context.Context, url common.URL) (*common.Page, error) {
 	page, err := ps.queries.GetPageInfoByURL(ctx, url.String())
 
 	if err != nil {
 		return nil, err
 	}
 
-	pageInfo := &Page{
+	pageInfo := &common.Page{
 		ID:                page.ID,
 		ContentHash:       uint64(page.ContentHash.Int64),
 		Title:             page.Title.String,
 		Text:              page.Text.String,
 		Description:       page.Description.String,
-		FinalURL:          URL(page.FinalUrl),
+		FinalURL:          common.URL(page.FinalUrl),
 		CrawledAt:         page.CrawledAt.Time,
 		StatusCode:        int(page.StatusCode.Int64),
 		HasBeenCrawled:    page.HasBeenCrawled.Int64 == 1,
-		FoundCanonical:    URL(page.FoundCanonical.String),
+		FoundCanonical:    common.URL(page.FoundCanonical.String),
 		ResolvedCanonical: page.ResolvedCanonical.Int64 == 1,
 	}
 
-	host, _ := URL(page.FinalUrl).GetHost()
+	host, _ := common.URL(page.FinalUrl).GetHost()
 	pageInfo.Host = host
 	return pageInfo, nil
 }
 
-func (ps *PageStore) GetAll(ctx context.Context) ([]*Page, error) {
-	out := make([]*Page, 0)
+func (ps *PageStore) GetAll(ctx context.Context) ([]*common.Page, error) {
+	out := make([]*common.Page, 0)
 	res, err := ps.queries.GetAllPages(ctx)
 
 	if err != nil {
@@ -204,21 +206,21 @@ func (ps *PageStore) GetAll(ctx context.Context) ([]*Page, error) {
 	}
 
 	for _, page := range res {
-		pageInfo := &Page{
+		pageInfo := &common.Page{
 			ID:                page.ID,
 			ContentHash:       uint64(page.ContentHash.Int64),
 			Title:             page.Title.String,
 			Text:              page.Text.String,
 			Description:       page.Description.String,
-			FinalURL:          URL(page.FinalUrl),
+			FinalURL:          common.URL(page.FinalUrl),
 			CrawledAt:         page.CrawledAt.Time,
 			StatusCode:        int(page.StatusCode.Int64),
 			HasBeenCrawled:    page.HasBeenCrawled.Int64 == 1,
-			FoundCanonical:    URL(page.FoundCanonical.String),
+			FoundCanonical:    common.URL(page.FoundCanonical.String),
 			ResolvedCanonical: page.ResolvedCanonical.Int64 == 1,
 		}
 
-		host, _ := URL(page.FinalUrl).GetHost()
+		host, _ := common.URL(page.FinalUrl).GetHost()
 		pageInfo.Host = host
 
 		out = append(out, pageInfo)
@@ -252,8 +254,8 @@ func (ps *PageStore) BeforeCrawl(ctx context.Context) {
 	ps.log.Info("Successfully cleaned up frontier")
 }
 
-func (ps *PageStore) FindPossibleDuplicatePages(ctx context.Context) ([]*Page, error) {
-	out := make([]*Page, 0)
+func (ps *PageStore) FindPossibleDuplicatePages(ctx context.Context) ([]*common.Page, error) {
+	out := make([]*common.Page, 0)
 	res, err := ps.queries.FindPossibleDuplicatePages(ctx)
 	if err != nil {
 		ps.log.Fatal("Sqlite query error", zap.Error(err))
@@ -261,21 +263,21 @@ func (ps *PageStore) FindPossibleDuplicatePages(ctx context.Context) ([]*Page, e
 	}
 
 	for _, page := range res {
-		pageInfo := &Page{
+		pageInfo := &common.Page{
 			ID:                page.ID,
 			ContentHash:       uint64(page.ContentHash.Int64),
 			Title:             page.Title.String,
 			Text:              page.Text.String,
 			Description:       page.Description.String,
-			FinalURL:          URL(page.FinalUrl),
+			FinalURL:          common.URL(page.FinalUrl),
 			CrawledAt:         page.CrawledAt.Time,
 			StatusCode:        int(page.StatusCode.Int64),
 			HasBeenCrawled:    page.HasBeenCrawled.Int64 == 1,
-			FoundCanonical:    URL(page.FoundCanonical.String),
+			FoundCanonical:    common.URL(page.FoundCanonical.String),
 			ResolvedCanonical: page.ResolvedCanonical.Int64 == 1,
 		}
 
-		host, _ := URL(page.FinalUrl).GetHost()
+		host, _ := common.URL(page.FinalUrl).GetHost()
 		pageInfo.Host = host
 
 		out = append(out, pageInfo)
@@ -284,8 +286,8 @@ func (ps *PageStore) FindPossibleDuplicatePages(ctx context.Context) ([]*Page, e
 	return out, nil
 }
 
-func (ps *PageStore) FindCanonicDuplicatesPages(ctx context.Context) ([]*Page, error) {
-	out := make([]*Page, 0)
+func (ps *PageStore) FindCanonicDuplicatesPages(ctx context.Context) ([]*common.Page, error) {
+	out := make([]*common.Page, 0)
 	res, err := ps.queries.FindCanonicDuplicatesPages(ctx)
 	if err != nil {
 		ps.log.Fatal("Sqlite query error", zap.Error(err))
@@ -293,21 +295,21 @@ func (ps *PageStore) FindCanonicDuplicatesPages(ctx context.Context) ([]*Page, e
 	}
 
 	for _, page := range res {
-		pageInfo := &Page{
+		pageInfo := &common.Page{
 			ID:                page.ID,
 			ContentHash:       uint64(page.ContentHash.Int64),
 			Title:             page.Title.String,
 			Text:              page.Text.String,
 			Description:       page.Description.String,
-			FinalURL:          URL(page.FinalUrl),
+			FinalURL:          common.URL(page.FinalUrl),
 			CrawledAt:         page.CrawledAt.Time,
 			StatusCode:        int(page.StatusCode.Int64),
 			HasBeenCrawled:    page.HasBeenCrawled.Int64 == 1,
-			FoundCanonical:    URL(page.FoundCanonical.String),
+			FoundCanonical:    common.URL(page.FoundCanonical.String),
 			ResolvedCanonical: page.ResolvedCanonical.Int64 == 1,
 		}
 
-		host, _ := URL(page.FinalUrl).GetHost()
+		host, _ := common.URL(page.FinalUrl).GetHost()
 		pageInfo.Host = host
 
 		out = append(out, pageInfo)

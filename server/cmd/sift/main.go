@@ -7,7 +7,9 @@ import (
 
 	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/crawler"
+	"github.com/twitocode/sift/internal/crawler/dedup"
 	"github.com/twitocode/sift/internal/indexer"
+	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
 
 	_ "modernc.org/sqlite"
@@ -24,15 +26,15 @@ func main() {
 	}
 	log.Info("Connected to Sqlite")
 
-	pageStore := crawler.NewPageStore(sqliteDb, log)
+	pageStore := store.NewPageStore(sqliteDb, log)
 	indexerStore := indexer.NewIndexerStore(sqliteDb, log)
 
-  dbCtx := context.Background()
+	dbCtx := context.Background()
 	pageStore.BeforeCrawl(dbCtx)
-  indexerStore.BeforeIndexing(dbCtx)
+	indexerStore.BeforeIndexing(dbCtx)
 	crawler.NewEngine(log, pageStore, cfg).Start()
 
-	deduplicator := crawler.NewDeduplicator(pageStore, log)
+	deduplicator := dedup.NewDeduplicator(pageStore, log)
 	deduplicator.Start(context.Background())
 
 	indexer.NewIndexer(log, pageStore, indexerStore).Start()

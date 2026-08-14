@@ -1,8 +1,9 @@
-package crawler
+package dedup
 
 import (
 	"math"
 
+	"github.com/twitocode/sift/internal/common"
 	"github.com/zeebo/xxh3"
 )
 
@@ -30,7 +31,7 @@ func NewBloomFilter(expectedItems, falsePositiveRate float64) *BloomFilter {
 	}
 }
 
-func (bf *BloomFilter) Insert(url URL) {
+func (bf *BloomFilter) Insert(url common.URL) {
 	hash128 := xxh3.HashString128(url.String())
 
 	h1 := hash128.Lo
@@ -44,7 +45,7 @@ func (bf *BloomFilter) Insert(url URL) {
 	}
 }
 
-func (bf *BloomFilter) ProbablyContains(url URL) bool {
+func (bf *BloomFilter) ProbablyContains(url common.URL) bool {
 	hash128 := xxh3.HashString128(url.String())
 
 	h1 := hash128.Lo

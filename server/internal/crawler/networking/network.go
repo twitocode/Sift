@@ -1,11 +1,11 @@
-package crawler
+package networking
 
 import (
 	"net/http"
 	"time"
 )
 
-func newHttpClient(dialerContext DialerContext, spiderCount int) *http.Client {
+func NewHttpClient(dialerContext DialerContext, spiderCount int) *http.Client {
 	maxIdle := spiderCount
 	if maxIdle < 64 {
 		maxIdle = 64

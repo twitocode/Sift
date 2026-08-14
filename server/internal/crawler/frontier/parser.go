@@ -1,4 +1,4 @@
-package crawler
+package frontier
 
 import (
 	"bytes"
@@ -11,17 +11,20 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/twitocode/sift/internal/common"
+	"github.com/twitocode/sift/internal/crawler/dedup"
+	"github.com/twitocode/sift/internal/metrics"
 	"go.uber.org/zap"
 	"golang.org/x/net/html"
 )
 
 type Parser interface {
-	Parse() *Page
+	Parse() *common.Page
 }
 
 type HTMLParser struct {
 	log     *zap.Logger
-	metrics *CrawlMetrics
+	metrics *metrics.CrawlMetrics
 
 	maxHTMLSize     int
 	maxLinksPerPage int
@@ -36,7 +39,7 @@ type ParserOutput struct {
 	foundCanonical string
 }
 
-func NewHTMLParser(log *zap.Logger, metrics *CrawlMetrics) *HTMLParser {
+func NewHTMLParser(log *zap.Logger, metrics *metrics.CrawlMetrics) *HTMLParser {
 	return &HTMLParser{
 		log:             log,
 		metrics:         metrics,
@@ -45,7 +48,7 @@ func NewHTMLParser(log *zap.Logger, metrics *CrawlMetrics) *HTMLParser {
 	}
 }
 
-func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job Payload) (*Page, error) {
+func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job SpiderPayload) (*common.Page, error) {
 	if res.ContentLength > int64(p.maxHTMLSize) {
 		p.log.Debug("Page Too Large", zap.String("url", job.url.String()), zap.Int64("content_length", res.ContentLength))
 		return nil, fmt.Errorf("HTML Content-Length %d exceeds %d Bytes", res.ContentLength, p.maxHTMLSize)
@@ -95,8 +98,8 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job Payload)
 		output.description = ""
 	}
 
-	page := &Page{
-		FinalURL:       URL(res.Request.URL.String()),
+	page := &common.Page{
+		FinalURL:       common.URL(res.Request.URL.String()),
 		RequestedURL:   job.url,
 		Host:           job.host,
 		Title:          output.title,
@@ -107,17 +110,17 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job Payload)
 		Text:           output.text,
 		Links:          p.findLinks(doc, job.url),
 		HasBeenCrawled: output.hasBeenCrawled,
-		ContentHash:    CreateSimhashFingerprint(output.text),
+		ContentHash:    dedup.CreateSimhashFingerprint(output.text),
 		DuplicateOf:    -1,
-		FoundCanonical: URL(output.foundCanonical).normalizeString(),
+		FoundCanonical: common.URL(output.foundCanonical).NormalizeString(),
 	}
 
 	p.metrics.PagesParsed.Add(1)
 	return page, nil
 }
 
-func (p *HTMLParser) findLinks(doc *goquery.Document, pageURL URL) []URL {
-	var foundUrls []URL = make([]URL, 0)
+func (p *HTMLParser) findLinks(doc *goquery.Document, pageURL common.URL) []common.URL {
+	var foundUrls []common.URL = make([]common.URL, 0)
 
 	reachedMax := false
 	doc.Find("a").Each(func(i int, s *goquery.Selection) {
@@ -126,7 +129,7 @@ func (p *HTMLParser) findLinks(doc *goquery.Document, pageURL URL) []URL {
 			return
 		}
 
-		resolved, err := URL(href).ResolveUrl(pageURL)
+		resolved, err := common.URL(href).ResolveUrl(pageURL)
 		if err != nil {
 			return
 		}
@@ -146,7 +149,7 @@ func (p *HTMLParser) findLinks(doc *goquery.Document, pageURL URL) []URL {
 	return foundUrls
 }
 
-func (p *HTMLParser) getMeta(body []byte, url URL) ParserOutput {
+func (p *HTMLParser) getMeta(body []byte, url common.URL) ParserOutput {
 	tokenizer := html.NewTokenizer(bytes.NewReader(body))
 	var buffer bytes.Buffer
 	var out ParserOutput = ParserOutput{

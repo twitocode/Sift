@@ -1,4 +1,4 @@
-package crawler
+package metrics
 
 import (
 	"fmt"
@@ -19,9 +19,9 @@ type CrawlMetrics struct {
 	URLsSkippedAtLimit atomic.Int64
 	URLDuplicates      atomic.Int64
 
-	FetchFailures atomic.Int64
-	PagesParsed   atomic.Int64
-  PagesSkipped atomic.Int64
+	FetchFailures       atomic.Int64
+	PagesParsed         atomic.Int64
+	PagesSkipped        atomic.Int64
 	PagesStored         atomic.Int64
 	PagesDuplicates     atomic.Int64
 	BlacklistedWebsites atomic.Int64
@@ -51,7 +51,7 @@ func (cm *CrawlMetrics) PrintSummary(duration time.Duration) {
 
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
-	rows := getRows(cm, mem, duration)
+	rows := cm.getRows(mem, duration)
 
 	var (
 		purple    = lipgloss.Color("99")
@@ -84,7 +84,7 @@ func (cm *CrawlMetrics) PrintSummary(duration time.Duration) {
 	lipgloss.Println(t)
 }
 
-func getRows(cm *CrawlMetrics, mem runtime.MemStats, duration time.Duration) [][]string {
+func (cm *CrawlMetrics) getRows(mem runtime.MemStats, duration time.Duration) [][]string {
 	return [][]string{
 		{"URLs Discovered", strconv.FormatInt(cm.URLsDiscovered.Load(), 10)},
 		{"URLs Fetched", strconv.FormatInt(cm.URLsFetched.Load(), 10)},
@@ -102,7 +102,7 @@ func getRows(cm *CrawlMetrics, mem runtime.MemStats, duration time.Duration) [][
 		{"Gigabytes Downloaded", fmt.Sprintf("%.2f GB", float64(cm.BytesDownloaded.Load())*1e-9)},
 		{"Still In Flight", strconv.FormatInt(cm.InFlight.Load(), 10)},
 		{"DNS Failures", strconv.FormatInt(cm.DNSLookupFailures.Load(), 10)},
-		{"Time Elapsed",fmt.Sprintf("%.2f", duration.String())},
+		{"Time Elapsed", fmt.Sprintf("%.2f", duration.String())},
 		{"Heap Alloc (MB)", strconv.FormatUint(mem.HeapAlloc/1024/1024, 10)},
 		{"Heap In-Use (MB)", strconv.FormatUint(mem.HeapInuse/1024/1024, 10)},
 		{"Heap Objects", strconv.FormatUint(mem.HeapObjects, 10)},

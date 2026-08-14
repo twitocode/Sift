@@ -1,4 +1,4 @@
-package crawler
+package networking
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/twitocode/sift/internal/common"
+	"github.com/twitocode/sift/internal/metrics"
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
 )
@@ -16,11 +17,11 @@ type DNSCache struct {
 	ips      *common.SafeMap[string, net.IP]
 	dnsGroup singleflight.Group
 
-	metrics *CrawlMetrics
+	metrics *metrics.CrawlMetrics
 	log     *zap.Logger
 }
 
-func NewDNSCache(log *zap.Logger, metrics *CrawlMetrics) *DNSCache {
+func NewDNSCache(log *zap.Logger, metrics *metrics.CrawlMetrics) *DNSCache {
 	return &DNSCache{ips: common.NewSafeMap[string, net.IP](), log: log, metrics: metrics}
 }
 

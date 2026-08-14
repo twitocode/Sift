@@ -1,4 +1,4 @@
-package crawler
+package frontier
 
 import (
 	"errors"
@@ -6,11 +6,13 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/twitocode/sift/internal/common"
 )
 
 type BQueue struct {
-	Host            URL
-	URLs            []URL
+	Host            common.URL
+	URLs            []common.URL
 	Locked          bool
 	StaleUntil      time.Time
 	DiscoveredCount atomic.Int64
@@ -32,7 +34,7 @@ func (b *BQueue) Len() int {
 	return len(b.URLs)
 }
 
-func (b *BQueue) Dequeue() URL {
+func (b *BQueue) Dequeue() common.URL {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -46,7 +48,7 @@ func (b *BQueue) Dequeue() URL {
 	return url
 }
 
-func (b *BQueue) Enqueue(newUrl URL, max int) bool {
+func (b *BQueue) Enqueue(newUrl common.URL, max int) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -54,7 +56,7 @@ func (b *BQueue) Enqueue(newUrl URL, max int) bool {
 		return false
 	}
 
-	normalized := newUrl.normalizeString()
+	normalized := newUrl.NormalizeString()
 	if slices.Contains(b.URLs, normalized) {
 		return false
 	}

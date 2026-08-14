@@ -1,4 +1,4 @@
-package crawler
+package dedup
 
 import (
 	"math/bits"
@@ -38,13 +38,12 @@ type BinarySearchResult struct {
 func NewSimHashIndex(hammingDistance int) *SimHashIndex {
 	var tables [][]IndexedFingerprint
 
-		tables = [][]IndexedFingerprint{
-			make([]IndexedFingerprint, 0),
-			make([]IndexedFingerprint, 0),
-			make([]IndexedFingerprint, 0),
-			make([]IndexedFingerprint, 0),
-		}
-	
+	tables = [][]IndexedFingerprint{
+		make([]IndexedFingerprint, 0),
+		make([]IndexedFingerprint, 0),
+		make([]IndexedFingerprint, 0),
+		make([]IndexedFingerprint, 0),
+	}
 
 	return &SimHashIndex{
 		tables:          tables,
@@ -141,9 +140,9 @@ func (shi *SimHashIndex) TryInsert(fingerprint uint64, pageIndex int) (bool, uin
 func (shi *SimHashIndex) DryInsert(fingerprint uint64, pageIndex int) {
 	for i, fingerprints := range shi.tables {
 		shi.tables[i] = append(fingerprints, IndexedFingerprint{
-      fingerprint: fingerprint,
-      pageIndex: pageIndex,
-    })
+			fingerprint: fingerprint,
+			pageIndex:   pageIndex,
+		})
 
 		slices.SortFunc(shi.tables[i], func(a, b IndexedFingerprint) int {
 			return int(GetChunk(a.fingerprint, i) - GetChunk(b.fingerprint, i))

@@ -1,15 +1,15 @@
-package crawler
+package dedup
 
 type DisjointSet struct {
 	parent []int
-  rank []int
+	rank   []int
 }
 
 type Cluster struct {
 	root *DisjointSet
 }
 
-//I dont fully understand this algorithm
+// I dont fully understand this algorithm
 func NewDisjointSet(size int) *DisjointSet {
 	parent := make([]int, size)
 	for i := range size {
@@ -18,7 +18,7 @@ func NewDisjointSet(size int) *DisjointSet {
 
 	return &DisjointSet{
 		parent: parent,
-    rank: make([]int, size),
+		rank:   make([]int, size),
 	}
 }
 
@@ -31,14 +31,14 @@ func (d *DisjointSet) Find(a int) int {
 }
 
 func (d *DisjointSet) Union(a int, b int) {
-  rootA := d.Find(a)
-  rootB := d.Find(b)
+	rootA := d.Find(a)
+	rootB := d.Find(b)
 
-  if rootA == rootB {
-    return
-  }
+	if rootA == rootB {
+		return
+	}
 
-  if d.rank[rootA] < d.rank[rootB] {
+	if d.rank[rootA] < d.rank[rootB] {
 		rootA, rootB = rootB, rootA
 	}
 

@@ -1,8 +1,10 @@
 package crawler
 
+import "github.com/twitocode/sift/internal/common"
+
 // var seed = []string{"https://www.seo.com", "https://www.cnn.com", "https://www.wikipedia.org"}
 
-var seed = []URL{
+var seed = []common.URL{
 	"https://en.wikipedia.org",
 	"https://www.reddit.com",
 	"https://news.ycombinator.com",
