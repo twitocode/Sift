@@ -5,8 +5,8 @@ import (
 	"github.com/twitocode/sift/internal/crawler/networking"
 )
 
-type SpiderPayload struct {
+type SpiderJob struct {
 	url           common.URL
-	host          common.URL
+	hostname      common.URL
 	dialerContext networking.DialerContext
 }

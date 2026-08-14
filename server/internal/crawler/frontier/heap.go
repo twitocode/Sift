@@ -10,13 +10,13 @@ import (
 // Heaps are a special type of binary tree in which they can be easily represented by an array because of the insertion order of items
 // This is a min heap
 type CooldownHeap struct {
-	values []*BQueue
+	values []*HostState
 	size   int
 }
 
-func NewHeap(capacity int) *CooldownHeap {
+func NewCooldownHeap(capacity int) *CooldownHeap {
 	return &CooldownHeap{
-		values: make([]*BQueue, 0, capacity),
+		values: make([]*HostState, 0, capacity),
 		size:   0,
 	}
 }
@@ -28,7 +28,7 @@ func (mh *CooldownHeap) EnsureCapacity() {
 }
 
 // Gets the root of the heap
-func (mh *CooldownHeap) Peek() (*BQueue, error) {
+func (mh *CooldownHeap) Peek() (*HostState, error) {
 	if mh.size > 0 {
 		return mh.values[0], nil
 	}
@@ -37,20 +37,23 @@ func (mh *CooldownHeap) Peek() (*BQueue, error) {
 }
 
 // Extracts minimum element
-func (mh *CooldownHeap) Poll() (*BQueue, error) {
-	if mh.size == 0 {
-		return nil, errors.New("heap is empty")
+func (mh *CooldownHeap) Poll() (*HostState, error) {
+	item := mh.values[0]
+	last := mh.size - 1
+
+	mh.values[0] = mh.values[last]
+	mh.values[last] = nil
+	mh.values = mh.values[:last]
+	mh.size--
+
+	if mh.size > 0 {
+		mh.HeapifyDown()
 	}
 
-	item := mh.values[0]
-	mh.values[0] = mh.values[mh.size-1]
-	mh.values = mh.values[1:]
-
-	mh.HeapifyDown()
 	return item, nil
 }
 
-func (mh *CooldownHeap) Add(host *BQueue) {
+func (mh *CooldownHeap) Add(host *HostState) {
 	mh.EnsureCapacity()
 	mh.values = append(mh.values, host)
 	mh.size++
@@ -116,14 +119,14 @@ func (mh *CooldownHeap) HasParent(index int) bool {
 	return mh.getParentIndex(index) >= 0
 }
 
-func (mh *CooldownHeap) GetLeft(index int) *BQueue {
+func (mh *CooldownHeap) GetLeft(index int) *HostState {
 	return mh.values[mh.getLeftIndex(index)]
 }
 
-func (mh *CooldownHeap) GetRight(index int) *BQueue {
+func (mh *CooldownHeap) GetRight(index int) *HostState {
 	return mh.values[mh.getRightIndex(index)]
 }
 
-func (mh *CooldownHeap) GetParent(index int) *BQueue {
+func (mh *CooldownHeap) GetParent(index int) *HostState {
 	return mh.values[mh.getParentIndex(index)]
 }

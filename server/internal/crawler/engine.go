@@ -16,7 +16,7 @@ import (
 type Engine struct {
 	pageReceiveChan chan *common.Page
 	linkReceiveChan chan common.URL
-	spiderFailChan  chan frontier.SpiderPayload
+	spiderFailChan  chan frontier.SpiderJob
 
 	maxPagesCrawled int
 
@@ -43,7 +43,7 @@ func NewEngine(log *zap.Logger, store *store.PageStore, cfg *common.Config) *Eng
 	return &Engine{
 		pageReceiveChan: make(chan *common.Page, int(float32(cfg.SpiderCount)*1.5)),
 		linkReceiveChan: make(chan common.URL, 2048),
-		spiderFailChan:  make(chan frontier.SpiderPayload, cfg.SpiderCount),
+		spiderFailChan:  make(chan frontier.SpiderJob, cfg.SpiderCount),
 		maxPagesCrawled: cfg.CrawlCount,
 		pagesCrawled:    0,
 		workers:         cfg.SpiderCount,
@@ -62,8 +62,6 @@ func (e *Engine) Start() {
 	startTime := time.Now()
 	e.crawlStartedAt = startTime
 	e.lastMilestoneAt = startTime
-	ticker := time.NewTicker(time.Millisecond * time.Duration(e.cfg.DispatchDelay))
-	defer ticker.Stop()
 
 	linkWorkers := 10
 	// +1 from store
@@ -75,7 +73,7 @@ func (e *Engine) Start() {
 	//TODO: collect from db first
 	go e.startLinkWorkers(ctx, linkWorkers)
 	go e.startSpiders(ctx, e.workers)
-	go e.loop(ctx, ticker, cancel)
+	go e.loop(ctx, cancel)
 
 	e.workerWg.Wait()
 	stats := e.frontier.Stats()
@@ -94,13 +92,32 @@ func (e *Engine) Start() {
 	})
 }
 
-func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.CancelFunc) {
+func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {
+	var timerC <-chan time.Time
+
+	timer := time.NewTimer(time.Hour)
+	timer.Stop()
+
+	timerC = timer.C
+
 	for {
+		duration := e.frontier.GetTimerCooldown()
+		wait := time.Until(duration)
+		wait = max(0, wait)
+
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(wait)
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			e.frontier.FreeHosts()
+		case <-timerC:
+			e.frontier.FreeExpiredHosts(time.Now())
 			potentialJobs, err := e.frontier.FindAvailableJobs()
 
 			if err != nil {
@@ -108,8 +125,11 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 			}
 
 			for _, job := range potentialJobs {
-				e.frontier.TryDispatchJob(ctx, &job)
+				e.frontier.DispatchJob(ctx, &job)
 			}
+
+		case <-e.frontier.SchedulerWake():
+			continue
 
 		case page := <-e.pageReceiveChan:
 			if page == nil {
@@ -152,8 +172,8 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 			}
 
 			e.store.Add(ctx, *page)
+			e.frontier.AfterPageProcessed(ctx, page)
 
-			e.frontier.ProcessPage(ctx, page)
 			if e.pagesCrawled == e.maxPagesCrawled {
 				e.shutdown(cancel)
 				return
@@ -168,16 +188,19 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 				}
 			}
 
-		case payload := <-e.spiderFailChan:
-			e.frontier.HandleSpiderFail(payload)
+		case job := <-e.spiderFailChan:
+			e.frontier.HandleSpiderFail(job)
 		}
 	}
 }
 
 func (e *Engine) Seed(ctx context.Context) {
 	for _, link := range seed {
-		e.frontier.AddHost(ctx, link)
-		e.frontier.ProcessLink(ctx, link)
+		queue, err := e.frontier.AddOrRetrieveHost(ctx, link)
+
+		if err == nil {
+			e.frontier.AddLink(ctx, queue, link)
+		}
 	}
 }
 
@@ -219,8 +242,11 @@ func (e *Engine) startLinkWorkers(ctx context.Context, count int) {
 					if !ok {
 						return
 					}
-					e.frontier.AddHost(ctx, newUrlToRequest)
-					e.frontier.ProcessLink(ctx, newUrlToRequest)
+					queue, err := e.frontier.AddOrRetrieveHost(ctx, newUrlToRequest)
+
+					if err == nil {
+						e.frontier.AddLink(ctx, queue, newUrlToRequest)
+					}
 				}
 			}
 		}()
