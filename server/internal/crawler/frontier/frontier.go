@@ -29,17 +29,24 @@ type FrontierStore struct {
 	log       *zap.Logger
 
 	pending atomic.Int32
+  rrIndex atomic.Uint64
 
 	hostMu sync.Mutex
 }
 
 type FrontierStats struct {
-	HostQueues     int
-	PendingURLs    int
-	LargestQueue   int
-	LockedHosts    int
-	CooldownHosts  int
-	AvailableHosts int
+	HostQueues          int
+	UniqueHosts         int
+	PendingURLs         int
+	LargestQueue        int
+	LargestQueueHost    common.URL
+	OldestQueueAge      time.Duration
+	OldestQueueHost     common.URL
+	MostDispatchedHost  common.URL
+	MostDispatchedCount int64
+	LockedHosts         int
+	CooldownHosts       int
+	AvailableHosts      int
 }
 
 func (fs *FrontierStore) ReadyQueue() <-chan SpiderPayload {
@@ -64,7 +71,9 @@ func NewFrontierStore(log *zap.Logger, dnsCache *networking.DNSCache, cfg *commo
 }
 
 func (fs *FrontierStore) Stats() FrontierStats {
-	stats := FrontierStats{}
+	stats := FrontierStats{
+		UniqueHosts: fs.bufferQueues.Length(),
+	}
 	now := time.Now()
 
 	fs.bufferQueues.Range(func(_ common.URL, queue *BQueue) bool {
@@ -72,12 +81,25 @@ func (fs *FrontierStore) Stats() FrontierStats {
 		pending := len(queue.URLs)
 		locked := queue.Locked
 		staleUntil := queue.StaleUntil
+		var queueAge time.Duration
+		if len(queue.QueuedAt) > 0 {
+			queueAge = now.Sub(queue.QueuedAt[0])
+		}
 		queue.mu.Unlock()
 
 		stats.HostQueues++
 		stats.PendingURLs += pending
 		if pending > stats.LargestQueue {
 			stats.LargestQueue = pending
+			stats.LargestQueueHost = queue.Host
+		}
+		if queueAge > stats.OldestQueueAge {
+			stats.OldestQueueAge = queueAge
+			stats.OldestQueueHost = queue.Host
+		}
+		if dispatches := queue.DispatchCount.Load(); dispatches > stats.MostDispatchedCount {
+			stats.MostDispatchedCount = dispatches
+			stats.MostDispatchedHost = queue.Host
 		}
 		if locked {
 			stats.LockedHosts++
@@ -188,6 +210,7 @@ func (fs *FrontierStore) ProcessLink(ctx context.Context, newUrlToRequest common
 			bQueue.Unlock()
 			return
 		case fs.readyQueue <- payload:
+			bQueue.DispatchCount.Add(1)
 		}
 		return
 	} else {
@@ -252,14 +275,37 @@ func (fs *FrontierStore) Shutdown() {
 // used for timer
 func (fs *FrontierStore) FindAvailableJobs() ([]SpiderPayload, error) {
 	jobs := make([]SpiderPayload, 0)
-	i := 0
+  
+  availableSlots := cap(fs.readyQueue) - len(fs.readyQueue)
+  if availableSlots <= 0 {
+    return []SpiderPayload{}, nil
+  } 
 
-	fs.bufferQueues.Range(func(host common.URL, queue *BQueue) bool {
-		availableSlots := cap(fs.readyQueue) - len(fs.readyQueue)
-		if i >= availableSlots {
-			return false
-		}
-		if queue.TryLock() {
+  hosts := make([]common.URL, 0)
+  fs.bufferQueues.Range(func(host common.URL, queue *BQueue) bool {
+    hosts =append(hosts, host)
+    return true
+  })
+
+  n := len(hosts)
+
+  if n == 0 {
+    return []SpiderPayload{}, nil
+  }
+  
+  //discrete math class ugh
+  start := int(fs.rrIndex.Add(1) - 1) % n
+
+
+  for i := 0; i < n && len(jobs) < availableSlots; i++ {
+    host := hosts[(start + i)%n]
+    queue, exists := fs.bufferQueues.Get(host)
+
+    if !exists {
+      continue
+    }
+
+    if queue.TryLock() {
 			for {
 				url := queue.Dequeue()
 				if url == "" {
@@ -277,13 +323,11 @@ func (fs *FrontierStore) FindAvailableJobs() ([]SpiderPayload, error) {
 					host:          host,
 					dialerContext: fs.dnsCache.DialContext,
 				})
-				i++
+				queue.DispatchCount.Add(1)
 				break
 			}
-		}
-
-		return true
-	})
+    }
+  }
 
 	return jobs, nil
 }

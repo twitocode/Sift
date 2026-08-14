@@ -78,7 +78,20 @@ func (e *Engine) Start() {
 	go e.loop(ctx, ticker, cancel)
 
 	e.workerWg.Wait()
-	e.metrics.PrintSummary(time.Since(startTime))
+	stats := e.frontier.Stats()
+	e.metrics.PrintSummary(time.Since(startTime), metrics.FrontierSummary{
+		UniqueHosts:         stats.UniqueHosts,
+		PendingURLs:         stats.PendingURLs,
+		LargestQueue:        stats.LargestQueue,
+		LargestQueueHost:    stats.LargestQueueHost.String(),
+		OldestQueueAge:      stats.OldestQueueAge,
+		OldestQueueHost:     stats.OldestQueueHost.String(),
+		MostDispatchedCount: stats.MostDispatchedCount,
+		MostDispatchedHost:  stats.MostDispatchedHost.String(),
+		LockedHosts:         stats.LockedHosts,
+		CooldownHosts:       stats.CooldownHosts,
+		AvailableHosts:      stats.AvailableHosts,
+	})
 }
 
 func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.CancelFunc) {
@@ -113,8 +126,14 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 					zap.Duration("milestone_elapsed", now.Sub(e.lastMilestoneAt)),
 					zap.Duration("total_elapsed", now.Sub(e.crawlStartedAt)),
 					zap.Int("host_queues", stats.HostQueues),
+					zap.Int("unique_hosts", stats.UniqueHosts),
 					zap.Int("pending_urls", stats.PendingURLs),
 					zap.Int("largest_host_queue", stats.LargestQueue),
+					zap.String("largest_host_queue_host", stats.LargestQueueHost.String()),
+					zap.Duration("oldest_queued_url_age", stats.OldestQueueAge),
+					zap.String("oldest_queued_url_host", stats.OldestQueueHost.String()),
+					zap.Int64("most_dispatched_host_count", stats.MostDispatchedCount),
+					zap.String("most_dispatched_host", stats.MostDispatchedHost.String()),
 					zap.Int("locked_hosts", stats.LockedHosts),
 					zap.Int("cooldown_hosts", stats.CooldownHosts),
 					zap.Int("available_hosts", stats.AvailableHosts),

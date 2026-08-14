@@ -90,6 +90,5 @@ func (im *IndexerMetrics) getRows(mem runtime.MemStats, duration time.Duration) 
 		{"Documents Stored", strconv.FormatInt(im.DocumentsStored.Load(), 10)},
 		{"Flushes", strconv.FormatInt(im.Flushes.Load(), 10)},
 		{"Store Errors", strconv.FormatInt(im.StoreErrors.Load(), 10)},
-		{"Time Elapsed", fmt.Sprintf("%.2f", duration.String())},
-	}
+		{"Time Elapsed", fmt.Sprintf("%s", duration.String())}}
 }

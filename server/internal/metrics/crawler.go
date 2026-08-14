@@ -40,18 +40,32 @@ type CrawlMetrics struct {
 	log *zap.Logger
 }
 
+type FrontierSummary struct {
+	UniqueHosts         int
+	PendingURLs         int
+	LargestQueue        int
+	LargestQueueHost    string
+	OldestQueueAge      time.Duration
+	OldestQueueHost     string
+	MostDispatchedCount int64
+	MostDispatchedHost  string
+	LockedHosts         int
+	CooldownHosts       int
+	AvailableHosts      int
+}
+
 func NewCrawlMetrics(log *zap.Logger) *CrawlMetrics {
 	return &CrawlMetrics{
 		log: log,
 	}
 }
 
-func (cm *CrawlMetrics) PrintSummary(duration time.Duration) {
+func (cm *CrawlMetrics) PrintSummary(duration time.Duration, frontier FrontierSummary) {
 	cm.log.Info("Crawling Summary")
 
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
-	rows := cm.getRows(mem, duration)
+	rows := cm.getRows(mem, duration, frontier)
 
 	var (
 		purple    = lipgloss.Color("99")
@@ -84,8 +98,19 @@ func (cm *CrawlMetrics) PrintSummary(duration time.Duration) {
 	lipgloss.Println(t)
 }
 
-func (cm *CrawlMetrics) getRows(mem runtime.MemStats, duration time.Duration) [][]string {
+func (cm *CrawlMetrics) getRows(mem runtime.MemStats, duration time.Duration, frontier FrontierSummary) [][]string {
 	return [][]string{
+		{"Unique Hosts", strconv.Itoa(frontier.UniqueHosts)},
+		{"Pending URLs", strconv.Itoa(frontier.PendingURLs)},
+		{"Largest Host Queue", strconv.Itoa(frontier.LargestQueue)},
+		{"Largest Queue Host", frontier.LargestQueueHost},
+		{"Oldest Queued URL Age", frontier.OldestQueueAge.String()},
+		{"Oldest Queue Host", frontier.OldestQueueHost},
+		{"Most Dispatched Host Count", strconv.FormatInt(frontier.MostDispatchedCount, 10)},
+		{"Most Dispatched Host", frontier.MostDispatchedHost},
+		{"Locked Hosts", strconv.Itoa(frontier.LockedHosts)},
+		{"Cooldown Hosts", strconv.Itoa(frontier.CooldownHosts)},
+		{"Available Hosts", strconv.Itoa(frontier.AvailableHosts)},
 		{"URLs Discovered", strconv.FormatInt(cm.URLsDiscovered.Load(), 10)},
 		{"URLs Fetched", strconv.FormatInt(cm.URLsFetched.Load(), 10)},
 		{"URLs Rejected", strconv.FormatInt(cm.URLsRejected.Load(), 10)},
@@ -102,7 +127,7 @@ func (cm *CrawlMetrics) getRows(mem runtime.MemStats, duration time.Duration) []
 		{"Gigabytes Downloaded", fmt.Sprintf("%.2f GB", float64(cm.BytesDownloaded.Load())*1e-9)},
 		{"Still In Flight", strconv.FormatInt(cm.InFlight.Load(), 10)},
 		{"DNS Failures", strconv.FormatInt(cm.DNSLookupFailures.Load(), 10)},
-		{"Time Elapsed", fmt.Sprintf("%.2f", duration.String())},
+		{"Time Elapsed", fmt.Sprintf("%s", duration.String())},
 		{"Heap Alloc (MB)", strconv.FormatUint(mem.HeapAlloc/1024/1024, 10)},
 		{"Heap In-Use (MB)", strconv.FormatUint(mem.HeapInuse/1024/1024, 10)},
 		{"Heap Objects", strconv.FormatUint(mem.HeapObjects, 10)},

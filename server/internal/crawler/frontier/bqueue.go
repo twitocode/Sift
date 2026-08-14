@@ -2,6 +2,7 @@ package frontier
 
 import (
 	"errors"
+	"math"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -13,10 +14,12 @@ import (
 type BQueue struct {
 	Host            common.URL
 	URLs            []common.URL
+	QueuedAt        []time.Time
 	Locked          bool
 	StaleUntil      time.Time
 	DiscoveredCount atomic.Int64
 	SkippedCount    atomic.Int64
+	DispatchCount   atomic.Int64
 
 	mu sync.Mutex
 }
@@ -45,6 +48,7 @@ func (b *BQueue) Dequeue() common.URL {
 	url := b.URLs[0]
 	b.URLs[0] = ""
 	b.URLs = b.URLs[1:]
+	b.QueuedAt = b.QueuedAt[1:]
 	return url
 }
 
@@ -61,6 +65,7 @@ func (b *BQueue) Enqueue(newUrl common.URL, max int) bool {
 		return false
 	}
 	b.URLs = append(b.URLs, normalized)
+	b.QueuedAt = append(b.QueuedAt, time.Now())
 	return true
 }
 
@@ -129,9 +134,8 @@ func (b *BQueue) GetDelay() time.Duration {
 		return time.Second * baseDelay
 	}
 
-	skipRatio := skipped / discovered
-
-	cooldown := baseDelay + (1 + skipRatio) ^ growthFactor
+	skipRatio := float64(skipped) / float64(discovered)
+	cooldown := baseDelay + math.Pow(1+skipRatio, growthFactor)
 	cooldown = max(min(cooldown, maxDelay), baseDelay)
 
 	return time.Second * time.Duration(cooldown)
