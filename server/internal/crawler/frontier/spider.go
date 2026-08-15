@@ -3,7 +3,9 @@ package frontier
 import (
 	"context"
 	"mime"
+	"net"
 	"net/http"
+	"time"
 
 	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/crawler/networking"
@@ -13,9 +15,9 @@ import (
 
 type Spider struct {
 	id           int
-	jobs         <-chan SpiderPayload
+	jobs         <-chan SpiderJob
 	sendChan     chan<- *common.Page
-	httpFailChan chan<- SpiderPayload
+	httpFailChan chan<- SpiderJob
 	log          *zap.Logger
 	client       *http.Client
 	metrics      *metrics.CrawlMetrics
@@ -27,7 +29,7 @@ var allowedContentTypes = []string{
 	"application/pdf",
 }
 
-func NewSpider(id int, log *zap.Logger, client *http.Client, jobs <-chan SpiderPayload, sendChan chan<- *common.Page, httpFailChan chan<- SpiderPayload, dialerContext networking.DialerContext, metrics *metrics.CrawlMetrics) *Spider {
+func NewSpider(id int, log *zap.Logger, client *http.Client, jobs <-chan SpiderJob, sendChan chan<- *common.Page, httpFailChan chan<- SpiderJob, dialerContext networking.DialerContext, metrics *metrics.CrawlMetrics) *Spider {
 	return &Spider{
 		id,
 		jobs,
@@ -58,7 +60,10 @@ func (sp *Spider) Walk(ctx context.Context) {
 			sp.metrics.RequestCount.Add(1)
 
 			sp.metrics.InFlight.Add(1)
+			fetchStartedAt := time.Now()
 			res, err := sp.client.Do(req)
+			host, _ := job.url.GetHost()
+			sp.metrics.RecordFetch(time.Since(fetchStartedAt), net.ParseIP(host.String()) != nil)
 			sp.metrics.InFlight.Add(-1)
 
 			if err != nil {
@@ -117,7 +122,7 @@ func (sp *Spider) Walk(ctx context.Context) {
 				} else {
 					page = &common.Page{
 						FinalURL:       common.URL(res.Request.URL.String()),
-						Host:           job.host,
+						Host:           job.hostname,
 						InEnglish:      false,
 						HasBeenCrawled: false,
 						RequestedURL:   job.url,

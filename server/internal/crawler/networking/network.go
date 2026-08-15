@@ -21,6 +21,6 @@ func NewHttpClient(dialerContext DialerContext, spiderCount int) *http.Client {
 
 	return &http.Client{
 		Transport: transport,
-		Timeout:   15 * time.Second,
+		Timeout:   10 * time.Second,
 	}
 }

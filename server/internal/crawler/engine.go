@@ -16,7 +16,7 @@ import (
 type Engine struct {
 	pageReceiveChan chan *common.Page
 	linkReceiveChan chan common.URL
-	spiderFailChan  chan frontier.SpiderPayload
+	spiderFailChan  chan frontier.SpiderJob
 
 	maxPagesCrawled int
 
@@ -43,7 +43,7 @@ func NewEngine(log *zap.Logger, store *store.PageStore, cfg *common.Config) *Eng
 	return &Engine{
 		pageReceiveChan: make(chan *common.Page, int(float32(cfg.SpiderCount)*1.5)),
 		linkReceiveChan: make(chan common.URL, 2048),
-		spiderFailChan:  make(chan frontier.SpiderPayload, cfg.SpiderCount),
+		spiderFailChan:  make(chan frontier.SpiderJob, cfg.SpiderCount),
 		maxPagesCrawled: cfg.CrawlCount,
 		pagesCrawled:    0,
 		workers:         cfg.SpiderCount,
@@ -62,8 +62,6 @@ func (e *Engine) Start() {
 	startTime := time.Now()
 	e.crawlStartedAt = startTime
 	e.lastMilestoneAt = startTime
-	ticker := time.NewTicker(time.Millisecond * time.Duration(e.cfg.DispatchDelay))
-	defer ticker.Stop()
 
 	linkWorkers := 10
 	// +1 from store
@@ -75,28 +73,58 @@ func (e *Engine) Start() {
 	//TODO: collect from db first
 	go e.startLinkWorkers(ctx, linkWorkers)
 	go e.startSpiders(ctx, e.workers)
-	go e.loop(ctx, ticker, cancel)
+	go e.loop(ctx, cancel)
 
 	e.workerWg.Wait()
-	e.metrics.PrintSummary(time.Since(startTime))
+	stats := e.frontier.Stats(true)
+	e.metrics.PrintSummary(time.Since(startTime), metrics.FrontierSummary{
+		UniqueHosts:         stats.UniqueHosts,
+		PendingURLs:         stats.PendingURLs,
+		LargestQueue:        stats.LargestQueue,
+		LargestQueueHost:    stats.LargestQueueHost.String(),
+		OldestQueueAge:      stats.OldestQueueAge,
+		OldestQueueHost:     stats.OldestQueueHost.String(),
+		MostDispatchedCount: stats.MostDispatchedCount,
+		MostDispatchedHost:  stats.MostDispatchedHost.String(),
+		LockedHosts:         stats.LockedHosts,
+		CooldownHosts:       stats.CooldownHosts,
+		AvailableHosts:      stats.AvailableHosts,
+	})
 }
 
-func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.CancelFunc) {
+func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {
+	var timerC <-chan time.Time
+
+	timer := time.NewTimer(time.Hour)
+	timer.Stop()
+
+	timerC = timer.C
+
 	for {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+
+		deadline, hasCooldown := e.frontier.GetTimerCooldown()
+		if hasCooldown {
+			timer.Reset(max(0, time.Until(deadline)))
+			timerC = timer.C
+		} else {
+			timerC = nil
+		}
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			e.frontier.FreeHosts()
-			potentialJobs, err := e.frontier.FindAvailableJobs()
+		case <-timerC:
+			e.frontier.FreeExpiredHosts(time.Now())
+			e.dispatchAvailableJobs(ctx)
 
-			if err != nil {
-				continue
-			}
-
-			for _, job := range potentialJobs {
-				e.frontier.TryDispatchJob(ctx, &job)
-			}
+		case <-e.frontier.SchedulerWake():
+			e.dispatchAvailableJobs(ctx)
 
 		case page := <-e.pageReceiveChan:
 			if page == nil {
@@ -105,7 +133,7 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 
 			if e.pagesFetched%250 == 0 {
 				now := time.Now()
-				stats := e.frontier.Stats()
+				stats := e.frontier.Stats(e.cfg.ShowCrawlStats)
 
 				e.log.Info("crawl milestone",
 					zap.Int("pages_crawled", e.pagesCrawled),
@@ -113,8 +141,14 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 					zap.Duration("milestone_elapsed", now.Sub(e.lastMilestoneAt)),
 					zap.Duration("total_elapsed", now.Sub(e.crawlStartedAt)),
 					zap.Int("host_queues", stats.HostQueues),
+					zap.Int("unique_hosts", stats.UniqueHosts),
 					zap.Int("pending_urls", stats.PendingURLs),
 					zap.Int("largest_host_queue", stats.LargestQueue),
+					zap.String("largest_host_queue_host", stats.LargestQueueHost.String()),
+					zap.Duration("oldest_queued_url_age", stats.OldestQueueAge),
+					zap.String("oldest_queued_url_host", stats.OldestQueueHost.String()),
+					zap.Int64("most_dispatched_host_count", stats.MostDispatchedCount),
+					zap.String("most_dispatched_host", stats.MostDispatchedHost.String()),
 					zap.Int("locked_hosts", stats.LockedHosts),
 					zap.Int("cooldown_hosts", stats.CooldownHosts),
 					zap.Int("available_hosts", stats.AvailableHosts),
@@ -133,8 +167,8 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 			}
 
 			e.store.Add(ctx, *page)
+			e.frontier.AfterPageProcessed(ctx, page)
 
-			e.frontier.ProcessPage(ctx, page)
 			if e.pagesCrawled == e.maxPagesCrawled {
 				e.shutdown(cancel)
 				return
@@ -149,16 +183,30 @@ func (e *Engine) loop(ctx context.Context, ticker *time.Ticker, cancel context.C
 				}
 			}
 
-		case payload := <-e.spiderFailChan:
-			e.frontier.HandleSpiderFail(payload)
+		case job := <-e.spiderFailChan:
+			e.frontier.HandleSpiderFail(job)
 		}
+	}
+}
+
+func (e *Engine) dispatchAvailableJobs(ctx context.Context) {
+	potentialJobs, err := e.frontier.FindAvailableJobs()
+	if err != nil {
+		return
+	}
+
+	for _, job := range potentialJobs {
+		e.frontier.DispatchJob(ctx, &job)
 	}
 }
 
 func (e *Engine) Seed(ctx context.Context) {
 	for _, link := range seed {
-		e.frontier.AddHost(ctx, link)
-		e.frontier.ProcessLink(ctx, link)
+		queue, err := e.frontier.AddOrRetrieveHost(ctx, link)
+
+		if err == nil {
+			e.frontier.AddLink(ctx, queue, link)
+		}
 	}
 }
 
@@ -200,8 +248,11 @@ func (e *Engine) startLinkWorkers(ctx context.Context, count int) {
 					if !ok {
 						return
 					}
-					e.frontier.AddHost(ctx, newUrlToRequest)
-					e.frontier.ProcessLink(ctx, newUrlToRequest)
+					queue, err := e.frontier.AddOrRetrieveHost(ctx, newUrlToRequest)
+
+					if err == nil {
+						e.frontier.AddLink(ctx, queue, newUrlToRequest)
+					}
 				}
 			}
 		}()

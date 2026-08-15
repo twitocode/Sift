@@ -15,76 +15,109 @@ import (
 )
 
 type FrontierStore struct {
-	bufferQueues *common.SafeMap[common.URL, *BQueue]
-	readyQueue   chan SpiderPayload
-	seenURLs     *common.SafeMap[common.URL, struct{}]
-	bloomFilter  *dedup.BloomFilter
-	crawledURLs  *common.SafeMap[common.URL, struct{}]
-	dnsCache     *networking.DNSCache
-	metrics      *metrics.CrawlMetrics
-	cfg          *common.Config
+	hosts         *common.SafeMap[common.URL, *HostState]
+	readyHosts    *HostQueue
+	cooldownHosts *CooldownHeap
+	wakeScheduler chan struct{}
+
+	readyQueue  chan SpiderJob
+	seenURLs    *common.SafeMap[common.URL, struct{}]
+	bloomFilter *dedup.BloomFilter
+	crawledURLs *common.SafeMap[common.URL, struct{}]
+	dnsCache    dnsCache
+	metrics     *metrics.CrawlMetrics
+	cfg         *common.Config
 
 	blacklist map[string]struct{}
 	workers   int
 	log       *zap.Logger
 
 	pending atomic.Int32
+	rrIndex atomic.Uint64
 
 	hostMu sync.Mutex
 }
 
 type FrontierStats struct {
-	HostQueues     int
-	PendingURLs    int
-	LargestQueue   int
-	LockedHosts    int
-	CooldownHosts  int
-	AvailableHosts int
+	HostQueues          int
+	UniqueHosts         int
+	PendingURLs         int
+	LargestQueue        int
+	LargestQueueHost    common.URL
+	OldestQueueAge      time.Duration
+	OldestQueueHost     common.URL
+	MostDispatchedHost  common.URL
+	MostDispatchedCount int64
+	LockedHosts         int
+	CooldownHosts       int
+	AvailableHosts      int
 }
 
-func (fs *FrontierStore) ReadyQueue() <-chan SpiderPayload {
+func (fs *FrontierStore) ReadyQueue() <-chan SpiderJob {
 	return fs.readyQueue
 }
 
 func NewFrontierStore(log *zap.Logger, dnsCache *networking.DNSCache, cfg *common.Config, metrics *metrics.CrawlMetrics, blacklist map[string]struct{}) *FrontierStore {
 	return &FrontierStore{
-		bufferQueues: common.NewSafeMap[common.URL, *BQueue](),
-		readyQueue:   make(chan SpiderPayload, cfg.SpiderCount),
-		seenURLs:     common.NewSafeMap[common.URL, struct{}](),
-		crawledURLs:  common.NewSafeMap[common.URL, struct{}](),
-		bloomFilter:  dedup.NewBloomFilter(float64(cfg.CrawlCount*2), 0.01),
-		dnsCache:     dnsCache,
-		workers:      cfg.SpiderCount,
-		log:          log,
-		blacklist:    blacklist,
+		hosts:         common.NewSafeMap[common.URL, *HostState](),
+		readyHosts:    NewHostQueue(),
+		readyQueue:    make(chan SpiderJob, cfg.SpiderCount),
+		wakeScheduler: make(chan struct{}, 1),
+		seenURLs:      common.NewSafeMap[common.URL, struct{}](),
+		crawledURLs:   common.NewSafeMap[common.URL, struct{}](),
+		bloomFilter:   dedup.NewBloomFilter(float64(cfg.CrawlCount*2), 0.01),
+		cooldownHosts: NewCooldownHeap(cfg.MaxHostQueues),
+		dnsCache:      dnsCache,
+		workers:       cfg.SpiderCount,
+		log:           log,
+		blacklist:     blacklist,
 
 		metrics: metrics,
 		cfg:     cfg,
 	}
 }
 
-func (fs *FrontierStore) Stats() FrontierStats {
-	stats := FrontierStats{}
-	now := time.Now()
+func (fs *FrontierStore) Stats(includeDetails bool) FrontierStats {
+	stats := FrontierStats{
+		UniqueHosts: fs.hosts.Length(),
+	}
 
-	fs.bufferQueues.Range(func(_ common.URL, queue *BQueue) bool {
+	if !includeDetails {
+		return stats
+	}
+
+	now := time.Now()
+	fs.hosts.Range(func(_ common.URL, queue *HostState) bool {
 		queue.mu.Lock()
 		pending := len(queue.URLs)
 		locked := queue.Locked
-		staleUntil := queue.StaleUntil
+		staleUntil := queue.NextEligibleAt
+		var queueAge time.Duration
+		if len(queue.QueuedAt) > 0 {
+			queueAge = now.Sub(queue.QueuedAt[0])
+		}
 		queue.mu.Unlock()
 
 		stats.HostQueues++
 		stats.PendingURLs += pending
 		if pending > stats.LargestQueue {
 			stats.LargestQueue = pending
+			stats.LargestQueueHost = queue.Host
+		}
+		if queueAge > stats.OldestQueueAge {
+			stats.OldestQueueAge = queueAge
+			stats.OldestQueueHost = queue.Host
+		}
+		if dispatches := queue.DispatchCount.Load(); dispatches > stats.MostDispatchedCount {
+			stats.MostDispatchedCount = dispatches
+			stats.MostDispatchedHost = queue.Host
 		}
 		if locked {
 			stats.LockedHosts++
-			if !staleUntil.IsZero() && now.Before(staleUntil) {
-				stats.CooldownHosts++
-			}
-		} else if staleUntil.IsZero() || now.After(staleUntil) {
+		}
+		if !staleUntil.IsZero() && now.Before(staleUntil) {
+			stats.CooldownHosts++
+		} else if !locked {
 			stats.AvailableHosts++
 		}
 
@@ -94,122 +127,87 @@ func (fs *FrontierStore) Stats() FrontierStats {
 	return stats
 }
 
-func (fs *FrontierStore) AddHost(ctx context.Context, newUrlToRequest common.URL) {
+func (fs *FrontierStore) AddOrRetrieveHost(ctx context.Context, newUrlToRequest common.URL) (*HostState, error) {
 	hostname, err := newUrlToRequest.GetHost()
 
 	if err != nil {
 		fs.log.Warn("Invalid url given", zap.String("url", newUrlToRequest.String()))
-		return
+		return nil, errors.New("Invalid url")
 	}
 
 	domain, _ := newUrlToRequest.GetDomain()
 	if IsDomainBlacklisted(domain, fs.blacklist) {
 		fs.metrics.BlacklistedWebsites.Add(1)
-		return
+		return nil, errors.New("Blacklisted host")
 	}
 
-	if fs.bufferQueues.Contains(hostname) {
-		return
+	state, exists := fs.hosts.Get(hostname)
+
+	if exists {
+		return state, nil
 	}
 
 	fs.hostMu.Lock()
 	defer fs.hostMu.Unlock()
 
-	if fs.bufferQueues.Contains(hostname) || fs.bufferQueues.Length() >= fs.cfg.MaxHostQueues {
-		return
-	}
-
-	queue := &BQueue{
-		Host:       hostname,
-		URLs:       []common.URL{},
-		Locked:     false,
-		StaleUntil: time.Now(),
-	}
-
-	fs.bufferQueues.Set(hostname, queue)
-}
-
-func (fs *FrontierStore) TryDispatchJob(ctx context.Context, job *SpiderPayload) {
-	_, exists := fs.bufferQueues.Get(job.host)
+	state, exists = fs.hosts.Get(hostname)
 	if exists {
-		select {
-		case <-ctx.Done():
-			return
-		case fs.readyQueue <- *job:
-		}
-	}
-}
-
-func (fs *FrontierStore) HasLinkBeenCrawled(link common.URL) bool {
-	if fs.bloomFilter.ProbablyContains(link) {
-		return fs.crawledURLs.Contains(link)
+		return state, nil
 	}
 
-	return false
+	if fs.hosts.Length() >= fs.cfg.MaxHostQueues {
+		return nil, errors.New("maximum host queues reached")
+	}
+
+	state = &HostState{
+		Host:           hostname,
+		URLs:           []common.URL{},
+		Locked:         false,
+		NextEligibleAt: time.Now(),
+	}
+
+	fs.hosts.Set(hostname, state)
+	return state, nil
 }
 
-func (fs *FrontierStore) ProcessLink(ctx context.Context, newUrlToRequest common.URL) {
+func (fs *FrontierStore) AddLink(ctx context.Context, host *HostState, newUrlToRequest common.URL) {
 	sanitizedURL, err := fs.SanitizeURL(newUrlToRequest)
 	if err != nil {
 		fs.log.Debug("Website not allowed", zap.String("url", newUrlToRequest.String()))
-
 		fs.metrics.URLsRejected.Add(1)
+
 		return
 	}
-
-	hostname, err := sanitizedURL.GetHost()
-	if err != nil {
-		fs.log.Warn("Invalid url given (linkReceiveChan)", zap.String("url", sanitizedURL.String()))
-		return
-	}
-
-	bQueue, exists := fs.bufferQueues.Get(hostname)
-	if !exists {
-		return
-	}
-
-	readyQueueAvailable := len(fs.readyQueue) < fs.workers
 
 	if !fs.claimURL(sanitizedURL) {
 		return
 	}
 
-	if readyQueueAvailable && bQueue.TryLock() {
-		bQueue.DiscoveredCount.Add(1)
-		payload := SpiderPayload{
-			url:           sanitizedURL,
-			host:          hostname,
-			dialerContext: fs.dnsCache.DialContext,
-		}
+	/*
+		Policy: if the number of urls we are tracking is larger than the max OR the number of urls in the host is at max then DONT enqueue
+	*/
+	host.DiscoveredCount.Add(1)
+	if fs.pending.Load() < int32(fs.cfg.MaxPendingURLs) {
+		if host.Enqueue(sanitizedURL, fs.cfg.MaxURLsPerHost) {
+			fs.pending.Add(1)
 
-		select {
-		case <-ctx.Done():
-			fs.seenURLs.Delete(sanitizedURL)
-			bQueue.Unlock()
-			return
-		case fs.readyQueue <- payload:
-		}
-		return
-	} else {
-		//TODO: might want to remove per host
-		if fs.pending.Load() < int32(fs.cfg.MaxPendingURLs) {
-			if bQueue.Enqueue(sanitizedURL, fs.cfg.MaxURLsPerHost) {
-				fs.pending.Add(1)
-			} else {
-				fs.seenURLs.Delete(sanitizedURL)
-				bQueue.SkippedCount.Add(1)
-				fs.metrics.URLsSkippedAtLimit.Add(1)
+			if host.IsAvailable() && host.IsScheduled.CompareAndSwap(false, true) {
+				fs.readyHosts.Push(host)
+				fs.signalScheduler()
 			}
-
-			bQueue.DiscoveredCount.Add(1)
 		} else {
 			fs.seenURLs.Delete(sanitizedURL)
+			host.SkippedCount.Add(1)
 			fs.metrics.URLsSkippedAtLimit.Add(1)
 		}
+	} else {
+		fs.seenURLs.Delete(sanitizedURL)
+		host.SkippedCount.Add(1)
+		fs.metrics.URLsSkippedAtLimit.Add(1)
 	}
 }
 
-func (fs *FrontierStore) ProcessPage(ctx context.Context, page *common.Page) error {
+func (fs *FrontierStore) AfterPageProcessed(ctx context.Context, page *common.Page) error {
 	requestedURL := page.RequestedURL.NormalizeString()
 	finalURL := page.FinalURL.NormalizeString()
 
@@ -223,12 +221,16 @@ func (fs *FrontierStore) ProcessPage(ctx context.Context, page *common.Page) err
 	fs.bloomFilter.Insert(finalURL)
 	fs.crawledURLs.Set(finalURL, struct{}{})
 
-	bQueue, exists := fs.bufferQueues.Get(page.Host)
+	host, exists := fs.hosts.Get(page.Host)
 	if !exists {
-		fs.log.Fatal("Buffer queue should exist but doesn't", zap.String("host", page.Host.String()))
+		fs.log.Warn("Host removed from global list", zap.String("host", page.Host.String()))
+		return nil
 	}
 
-	bQueue.Timeout()
+	host.Timeout()
+	fs.cooldownHosts.Add(host)
+	fs.signalScheduler()
+
 	allowedURLs := make([]common.URL, 0)
 
 	for _, link := range page.Links {
@@ -245,61 +247,91 @@ func (fs *FrontierStore) ProcessPage(ctx context.Context, page *common.Page) err
 	return nil
 }
 
-func (fs *FrontierStore) Shutdown() {
-	//close(fs.readyQueue)
+func (fs *FrontierStore) DispatchJob(ctx context.Context, job *SpiderJob) {
+	select {
+	case <-ctx.Done():
+		return
+	case fs.readyQueue <- *job:
+	}
 }
 
 // used for timer
-func (fs *FrontierStore) FindAvailableJobs() ([]SpiderPayload, error) {
-	jobs := make([]SpiderPayload, 0)
-	i := 0
+func (fs *FrontierStore) FindAvailableJobs() ([]SpiderJob, error) {
+	jobs := make([]SpiderJob, 0)
 
-	fs.bufferQueues.Range(func(host common.URL, queue *BQueue) bool {
-		availableSlots := cap(fs.readyQueue) - len(fs.readyQueue)
-		if i >= availableSlots {
-			return false
+	availableSlots := cap(fs.readyQueue) - len(fs.readyQueue)
+	if availableSlots <= 0 {
+		return []SpiderJob{}, nil
+	}
+
+	for len(jobs) < availableSlots {
+		host := fs.readyHosts.Pop()
+		if host == nil {
+			break
 		}
-		if queue.TryLock() {
-			for {
-				url := queue.Dequeue()
-				if url == "" {
-					queue.Unlock()
-					break
-				}
 
-				fs.pending.Add(-1)
-				if fs.HasLinkBeenCrawled(url) {
-					continue
-				}
+		if until, failed := fs.dnsCache.FailedUntil(host.Host.String()); failed {
+			host.CooldownUntil(until)
+			fs.cooldownHosts.Add(host)
+			continue
+		}
 
-				jobs = append(jobs, SpiderPayload{
-					url:           url,
-					host:          host,
-					dialerContext: fs.dnsCache.DialContext,
-				})
-				i++
+		var earliestUrl common.URL
+
+		for {
+			if host.Len() <= 0 {
+				earliestUrl = ""
 				break
 			}
+			earliestUrl = host.Dequeue()
+			fs.pending.Add(-1)
+			if fs.HasLinkBeenCrawled(earliestUrl) {
+				continue
+			}
+
+			break
 		}
 
-		return true
-	})
+		if earliestUrl == "" {
+			if host.HasWorkOrDeactivate() {
+				fs.readyHosts.Push(host)
+				fs.signalScheduler()
+			}
+			continue
+		}
+
+		newJob := SpiderJob{
+			url:           earliestUrl,
+			hostname:      host.Host,
+			dialerContext: fs.dnsCache.DialContext,
+		}
+
+		host.DispatchCount.Add(1)
+		jobs = append(jobs, newJob)
+	}
 
 	return jobs, nil
 }
 
-func (fs *FrontierStore) HandleSpiderFail(payload SpiderPayload) {
-	fs.seenURLs.Delete(payload.url)
+func (fs *FrontierStore) HandleSpiderFail(job SpiderJob) {
+	fs.seenURLs.Delete(job.url)
 
-	bQueue, exists := fs.bufferQueues.Get(payload.host)
-	if exists {
-		bQueue.TryUnlock()
+	host, exists := fs.hosts.Get(job.hostname)
+	if !exists {
+		return
 	}
+
+	host.Timeout()
+	fs.cooldownHosts.Add(host)
+	fs.signalScheduler()
 }
 
-func (fs *FrontierStore) IsLinkAvailable(link common.URL) bool {
-	//bloom filter and stuff
-	return !fs.HasLinkBeenCrawled(link) && !fs.seenURLs.Contains(link)
+func (fs *FrontierStore) HasLinkBeenCrawled(link common.URL) bool {
+	if fs.bloomFilter.ProbablyContains(link) {
+		return fs.crawledURLs.Contains(link)
+	}
+
+	return false
 }
 
 func (fs *FrontierStore) IsLinkDispatched(link common.URL) bool {
@@ -316,21 +348,42 @@ func (fs *FrontierStore) SanitizeURL(link common.URL) (common.URL, error) {
 	return link.NormalizeString(), nil
 }
 
-func (fs *FrontierStore) FreeHosts() {
-	fs.bufferQueues.Range(func(url common.URL, bQueue *BQueue) bool {
-		bQueue.mu.Lock()
-		defer bQueue.mu.Unlock()
-
-		if bQueue.Locked && !bQueue.StaleUntil.IsZero() && time.Now().After(bQueue.StaleUntil) {
-			bQueue.Locked = false
+func (fs *FrontierStore) FreeExpiredHosts(now time.Time) {
+	for {
+		rootHost, err := fs.cooldownHosts.Peek()
+		if err != nil {
+			return
 		}
 
-		return true
-	})
+		if now.After(rootHost.NextEligibleAt) {
+			rootHost, _ = fs.cooldownHosts.Poll()
+			if rootHost.HasWorkOrDeactivate() {
+				fs.readyHosts.Push(rootHost)
+			}
+			continue
+		}
+
+		break
+	}
 }
 
-func (fs *FrontierStore) GetBufferCount() int {
-	return fs.bufferQueues.Length()
+func (fs *FrontierStore) GetTimerCooldown() (time.Time, bool) {
+	rootHost, err := fs.cooldownHosts.Peek()
+	if err != nil {
+		return time.Time{}, false
+	}
+	return rootHost.NextEligibleAt, true
+}
+
+func (fs *FrontierStore) SchedulerWake() <-chan struct{} {
+	return fs.wakeScheduler
+}
+
+func (fs *FrontierStore) signalScheduler() {
+	select {
+	case fs.wakeScheduler <- struct{}{}:
+	default:
+	}
 }
 
 func (fs *FrontierStore) claimURL(url common.URL) bool {
@@ -344,4 +397,8 @@ func (fs *FrontierStore) claimURL(url common.URL) bool {
 func IsDomainBlacklisted(domain string, blacklist map[string]struct{}) bool {
 	_, found := blacklist[domain]
 	return found
+}
+
+func (fs *FrontierStore) Shutdown() {
+	//close(fs.readyQueue)
 }

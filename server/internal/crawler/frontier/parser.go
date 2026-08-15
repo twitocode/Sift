@@ -48,7 +48,7 @@ func NewHTMLParser(log *zap.Logger, metrics *metrics.CrawlMetrics) *HTMLParser {
 	}
 }
 
-func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job SpiderPayload) (*common.Page, error) {
+func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job SpiderJob) (*common.Page, error) {
 	if res.ContentLength > int64(p.maxHTMLSize) {
 		p.log.Debug("Page Too Large", zap.String("url", job.url.String()), zap.Int64("content_length", res.ContentLength))
 		return nil, fmt.Errorf("HTML Content-Length %d exceeds %d Bytes", res.ContentLength, p.maxHTMLSize)
@@ -101,7 +101,7 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job SpiderPa
 	page := &common.Page{
 		FinalURL:       common.URL(res.Request.URL.String()),
 		RequestedURL:   job.url,
-		Host:           job.host,
+		Host:           job.hostname,
 		Title:          output.title,
 		Description:    output.description,
 		CrawledAt:      time.Now(),

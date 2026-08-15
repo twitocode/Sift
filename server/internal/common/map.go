@@ -89,9 +89,8 @@ func (sm *SafeMap[K, V]) Values() []V {
 }
 
 func (sm *SafeMap[K, V]) Length() int {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
 
-	keys := slices.Collect(maps.Keys(sm.m))
-	return len(keys)
+	return len(sm.m)
 }
