@@ -8,6 +8,7 @@ import (
 	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/crawler"
 	"github.com/twitocode/sift/internal/crawler/dedup"
+	"github.com/twitocode/sift/internal/progress"
 	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
 
@@ -28,7 +29,14 @@ func main() {
 	store := store.NewPageStore(sqliteDb, log)
 	store.BeforeCrawl(context.Background())
 
-	crawler.NewEngine(log, store, cfg).Start()
+	engine := crawler.NewEngine(log, store, cfg)
+	done := make(chan error, 1)
+	go func() {
+		engine.Start()
+		close(done)
+	}()
+
+	_ = progress.Run("crawl", engine.Snapshot, done)
 
 	deduplicator := dedup.NewDeduplicator(store, log)
 	deduplicator.Start(context.Background())

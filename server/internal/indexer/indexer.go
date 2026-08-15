@@ -2,12 +2,12 @@ package indexer
 
 import (
 	"context"
-	"slices"
 	"sync"
 	"time"
 
 	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/metrics"
+	"github.com/twitocode/sift/internal/progress"
 	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
 )
@@ -33,7 +33,7 @@ func NewIndexer(log *zap.Logger, cfg *common.Config, pageStore *store.PageStore,
 	}
 }
 
-func (in *Indexer) Generate()*common.SafeMap[string, []common.Posting] {
+func (in *Indexer) Generate() *common.SafeMap[string, []common.Posting] {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	in.log.Info("Started Indexing")
@@ -62,6 +62,8 @@ func (in *Indexer) Generate()*common.SafeMap[string, []common.Posting] {
 		indexStats.TotalTokenCount += uint64(document.TokenCount)
 		in.indexerStore.Add(ctx, document)
 		in.metrics.DocumentsIndexed.Add(1)
+		in.metrics.TotalTokens.Store(int64(indexStats.TotalTokenCount))
+		in.metrics.UniqueTerms.Store(int64(len(in.index.Keys())))
 	}
 
 	indexStats.AverageDocLength = float64(indexStats.TotalTokenCount) / float64(indexStats.DocumentCount)
@@ -70,50 +72,65 @@ func (in *Indexer) Generate()*common.SafeMap[string, []common.Posting] {
 	wg.Wait()
 
 	elapsed := time.Since(start)
-	in.metrics.TotalTokens.Add(int64(indexStats.TotalTokenCount))
-	in.metrics.UniqueTerms.Add(int64(len(in.index.Keys())))
 
 	in.metrics.PrintSummary(elapsed)
-  return in.index
+	return in.index
+}
+
+func (in *Indexer) Snapshot() progress.Snapshot {
+	return progress.Snapshot{
+		Index: progress.IndexSnapshot{
+			DocumentsRead:    in.metrics.DocumentsRead.Load(),
+			DocumentsIndexed: in.metrics.DocumentsIndexed.Load(),
+			DocumentsStored:  in.metrics.DocumentsStored.Load(),
+			TotalTokens:      in.metrics.TotalTokens.Load(),
+			UniqueTerms:      in.metrics.UniqueTerms.Load(),
+			Flushes:          in.metrics.Flushes.Load(),
+		},
+	}
 }
 
 func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.DocumentStats {
 	textTokens := Tokenize(page.Text)
 	titleTokens := Tokenize(page.Title)
 
-	titlesStartIndex := len(textTokens)
-	allTokens := slices.Concat(textTokens, titleTokens)
-
 	in.metrics.BodyTokens.Add(int64(len(textTokens)))
 	in.metrics.TitleTokens.Add(int64(len(titleTokens)))
 
 	postingMap := make(map[string]common.Posting)
 	document := &common.DocumentStats{
-		TokenCount: uint32(len(allTokens)),
+		TokenCount: uint32(len(textTokens) + len(textTokens)),
 		PageID:     page.ID,
 	}
 
-	for i, token := range allTokens {
+	for _, token := range textTokens {
 		if entry, ok := postingMap[token]; !ok {
 			postingMap[token] = common.Posting{
 				Frequency:    1,
 				PageID:       uint32(page.ID),
-				MatchesTitle: i >= titlesStartIndex,
+				MatchesTitle: false,
 			}
 			in.metrics.TotalPostings.Add(1)
 		} else {
 			entry.Frequency += 1
-			if !entry.MatchesTitle {
-				entry.MatchesTitle = i >= titlesStartIndex
-			}
-
 			postingMap[token] = entry
 		}
+	}
 
-		if i >= titlesStartIndex {
-			in.metrics.TitlePostings.Add(1)
-
+	for _, token := range titleTokens {
+		if entry, ok := postingMap[token]; !ok {
+			postingMap[token] = common.Posting{
+				Frequency:    1,
+				PageID:       uint32(page.ID),
+				MatchesTitle: true,
+			}
+			in.metrics.TotalPostings.Add(1)
+		} else {
+			entry.Frequency += 1
+			entry.MatchesTitle = true
+			postingMap[token] = entry
 		}
+		in.metrics.TitlePostings.Add(1)
 	}
 
 	for token, posting := range postingMap {

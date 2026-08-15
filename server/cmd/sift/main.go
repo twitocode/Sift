@@ -9,6 +9,7 @@ import (
 	"github.com/twitocode/sift/internal/crawler"
 	"github.com/twitocode/sift/internal/crawler/dedup"
 	"github.com/twitocode/sift/internal/indexer"
+	"github.com/twitocode/sift/internal/progress"
 	"github.com/twitocode/sift/internal/ranker"
 	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
@@ -33,18 +34,28 @@ func main() {
 	dbCtx := context.Background()
 	pageStore.BeforeCrawl(dbCtx)
 	indexerStore.BeforeIndexing(dbCtx)
-	crawler.NewEngine(log, pageStore, cfg).Start()
 
-	deduplicator := dedup.NewDeduplicator(pageStore, log)
-	deduplicator.Start(context.Background())
-
+	engine := crawler.NewEngine(log, pageStore, cfg)
 	in := indexer.NewIndexer(log, cfg, pageStore, indexerStore)
-	index := in.Generate()
+	done := make(chan error, 1)
+	go func() {
+		engine.Start()
 
-	ctx := context.Background()
-	ranker := ranker.NewRanker(log, cfg, index, indexerStore, pageStore)
-	ranker.LoadDocuments(ctx)
-	ranker.LoadIndexMeta(ctx)
+		deduplicator := dedup.NewDeduplicator(pageStore, log)
+		deduplicator.Start(context.Background())
 
-	ranker.Query(ctx, "Generative Artificial Intelligence")
+		index := in.Generate()
+		ranker := ranker.NewRanker(log, cfg, index, indexerStore, pageStore)
+		ranker.LoadDocuments(context.Background())
+		ranker.LoadIndexMeta(context.Background())
+		ranker.Query(context.Background(), "Generative Artificial Intelligence")
+		close(done)
+	}()
+
+	_ = progress.Run("crawl + index", func() progress.Snapshot {
+		crawl := engine.Snapshot()
+		index := in.Snapshot()
+		crawl.Index = index.Index
+		return crawl
+	}, done)
 }

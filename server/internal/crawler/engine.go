@@ -3,12 +3,14 @@ package crawler
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/crawler/frontier"
 	"github.com/twitocode/sift/internal/crawler/networking"
 	"github.com/twitocode/sift/internal/metrics"
+	"github.com/twitocode/sift/internal/progress"
 	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
 )
@@ -20,8 +22,8 @@ type Engine struct {
 
 	maxPagesCrawled int
 
-	pagesCrawled int
-	pagesFetched int
+	pagesCrawled atomic.Int64
+	pagesFetched atomic.Int64
 	workers      int
 
 	metrics  *metrics.CrawlMetrics
@@ -45,7 +47,6 @@ func NewEngine(log *zap.Logger, store *store.PageStore, cfg *common.Config) *Eng
 		linkReceiveChan: make(chan common.URL, 2048),
 		spiderFailChan:  make(chan frontier.SpiderJob, cfg.SpiderCount),
 		maxPagesCrawled: cfg.CrawlCount,
-		pagesCrawled:    0,
 		workers:         cfg.SpiderCount,
 		store:           store,
 		cfg:             cfg,
@@ -131,13 +132,14 @@ func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {
 				continue
 			}
 
-			if e.pagesFetched%250 == 0 {
+			pagesFetched := e.pagesFetched.Load()
+			if pagesFetched%250 == 0 {
 				now := time.Now()
 				stats := e.frontier.Stats(e.cfg.ShowCrawlStats)
 
 				e.log.Info("crawl milestone",
-					zap.Int("pages_crawled", e.pagesCrawled),
-					zap.Int("pages_fetched", e.pagesFetched),
+					zap.Int64("pages_crawled", e.pagesCrawled.Load()),
+					zap.Int64("pages_fetched", pagesFetched),
 					zap.Duration("milestone_elapsed", now.Sub(e.lastMilestoneAt)),
 					zap.Duration("total_elapsed", now.Sub(e.crawlStartedAt)),
 					zap.Int("host_queues", stats.HostQueues),
@@ -161,15 +163,15 @@ func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {
 				e.lastMilestoneAt = now
 			}
 
-			e.pagesFetched++
+			e.pagesFetched.Add(1)
 			if page.HasBeenCrawled {
-				e.pagesCrawled++
+				e.pagesCrawled.Add(1)
 			}
 
 			e.store.Add(ctx, *page)
 			e.frontier.AfterPageProcessed(ctx, page)
 
-			if e.pagesCrawled == e.maxPagesCrawled {
+			if e.pagesCrawled.Load() == int64(e.maxPagesCrawled) {
 				e.shutdown(cancel)
 				return
 			}
@@ -264,9 +266,30 @@ func (e *Engine) shutdown(cancel context.CancelFunc) {
 	e.store.Shutdown()
 	e.frontier.Shutdown()
 
-	e.metrics.PagesSkipped.Add(int64(e.pagesFetched - e.pagesCrawled))
+	e.metrics.PagesSkipped.Add(e.pagesFetched.Load() - e.pagesCrawled.Load())
 
 	//might not need to close
 	//close(e.pageReceiveChan) //might be a code smell
 	//close(e.linkReceiveChan)
+}
+
+func (e *Engine) Snapshot() progress.Snapshot {
+	stats := e.frontier.Stats(true)
+	return progress.Snapshot{
+		Crawl: progress.CrawlSnapshot{
+			Limit:          e.maxPagesCrawled,
+			PagesCrawled:   int(e.pagesCrawled.Load()),
+			PagesFetched:   int(e.pagesFetched.Load()),
+			PagesStored:    e.metrics.PagesStored.Load(),
+			URLsDiscovered: e.metrics.URLsDiscovered.Load(),
+			URLsFetched:    e.metrics.URLsFetched.Load(),
+			FetchFailures:  e.metrics.FetchFailures.Load(),
+			InFlight:       e.metrics.InFlight.Load(),
+			PendingURLs:    stats.PendingURLs,
+			UniqueHosts:    stats.UniqueHosts,
+			AvailableHosts: stats.AvailableHosts,
+			LockedHosts:    stats.LockedHosts,
+			CooldownHosts:  stats.CooldownHosts,
+		},
+	}
 }

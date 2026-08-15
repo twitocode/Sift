@@ -7,6 +7,7 @@ import (
 
 	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/indexer"
+	"github.com/twitocode/sift/internal/progress"
 	"github.com/twitocode/sift/internal/ranker"
 	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
@@ -29,8 +30,21 @@ func main() {
 	indexerStore := store.NewIndexerStore(sqliteDb, log)
 
 	in := indexer.NewIndexer(log, cfg, pageStore, indexerStore)
-	index := in.Generate()
+	type indexResult struct {
+		index *common.SafeMap[string, []common.Posting]
+	}
+	result := make(chan indexResult, 1)
+	done := make(chan error, 1)
+	go func() {
+		result <- indexResult{index: in.Generate()}
+		close(done)
+	}()
 
+	if err := progress.Run("index", in.Snapshot, done); err != nil {
+		log.Error("progress ui", zap.Error(err))
+	}
+
+	index := (<-result).index
 	ctx := context.Background()
 	ranker := ranker.NewRanker(log, cfg, index, indexerStore, pageStore)
 	ranker.LoadDocuments(ctx)
