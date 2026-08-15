@@ -2,7 +2,6 @@ package frontier
 
 import (
 	"errors"
-	"math"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -144,20 +143,22 @@ func (hs *HostState) CanDelete(now time.Time) bool {
 }
 
 func (hs *HostState) GetDelay() time.Duration {
-	const baseDelay = 2
-	const growthFactor = 3
-	const maxDelay = 300
+	const politenessDelay = 2 * time.Second
+	return politenessDelay
+	// const baseDelay = 2
+	// const growthFactor = 3
+	// const maxDelay = 300
 
-	skipped := hs.SkippedCount.Load()
-	discovered := hs.DiscoveredCount.Load()
+	// skipped := hs.SkippedCount.Load()
+	// discovered := hs.DiscoveredCount.Load()
 
-	if discovered == 0 {
-		return time.Second * baseDelay
-	}
+	// if discovered == 0 {
+	// 	return time.Second * baseDelay
+	// }
 
-	skipRatio := float64(skipped) / float64(discovered)
-	cooldown := baseDelay + math.Pow(1+skipRatio, growthFactor)
-	cooldown = max(min(cooldown, maxDelay), baseDelay)
+	// skipRatio := float64(skipped) / float64(discovered)
+	// cooldown := baseDelay + math.Pow(1+skipRatio, growthFactor)
+	// cooldown = max(min(cooldown, maxDelay), baseDelay)
 
-	return time.Second * time.Duration(cooldown)
+	// return time.Second * time.Duration(cooldown)
 }
