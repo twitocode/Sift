@@ -86,3 +86,31 @@ func Union[T comparable](s1 []T, s2 []T) []T {
 
 	return out
 }
+
+
+func SplitIntoNChunks[T any](slice []T, n int) [][]T {
+	if n <= 0 || len(slice) == 0 {
+		return nil
+	}
+
+	total := len(slice)
+	if n > total {
+		n = total
+	}
+
+	result := make([][]T, 0, n)
+	baseSize := total / n
+	remainder := total % n
+
+	start := 0
+	for i := 0; i < n; i++ {
+		end := start + baseSize
+		if i < remainder {
+			end++
+		}
+		result = append(result, slice[start:end])
+		start = end
+	}
+
+	return result
+}

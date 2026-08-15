@@ -31,7 +31,7 @@ func main() {
 
 	in := indexer.NewIndexer(log, cfg, pageStore, indexerStore)
 	type indexResult struct {
-		index *common.SafeMap[string, []common.Posting]
+		index map[string][]common.Posting
 	}
 	result := make(chan indexResult, 1)
 	done := make(chan error, 1)

@@ -323,6 +323,67 @@ func (q *Queries) GetPageInfoByURL(ctx context.Context, finalUrl string) (Page, 
 	return i, err
 }
 
+const getPaginatedPageBatch = `-- name: GetPaginatedPageBatch :many
+SELECT
+  id, title, text
+FROM
+  pages
+WHERE
+  has_been_crawled = TRUE
+  AND id > ?
+LIMIT ?
+`
+
+type GetPaginatedPageBatchParams struct {
+	ID    int64
+	Limit int64
+}
+
+type GetPaginatedPageBatchRow struct {
+	ID    int64
+	Title sql.NullString
+	Text  sql.NullString
+}
+
+func (q *Queries) GetPaginatedPageBatch(ctx context.Context, arg GetPaginatedPageBatchParams) ([]GetPaginatedPageBatchRow, error) {
+	rows, err := q.db.QueryContext(ctx, getPaginatedPageBatch, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPaginatedPageBatchRow
+	for rows.Next() {
+		var i GetPaginatedPageBatchRow
+		if err := rows.Scan(&i.ID, &i.Title, &i.Text); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getTotalCrawledPageCount = `-- name: GetTotalCrawledPageCount :one
+SELECT
+  COUNT(id)
+FROM
+  pages
+WHERE
+  has_been_crawled = TRUE
+`
+
+func (q *Queries) GetTotalCrawledPageCount(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getTotalCrawledPageCount)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const setPageInfo = `-- name: SetPageInfo :exec
 INSERT INTO pages (
   final_url,

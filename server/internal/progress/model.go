@@ -31,9 +31,13 @@ type CrawlSnapshot struct {
 }
 
 type IndexSnapshot struct {
+	DocumentsTotal   int64
 	DocumentsRead    int64
 	DocumentsIndexed int64
 	DocumentsStored  int64
+	BatchesRead      int64
+	CurrentBatch     int64
+	BatchSize        int64
 	TotalTokens      int64
 	UniqueTerms      int64
 	Flushes          int64
@@ -129,14 +133,16 @@ func (m Model) View() string {
 
 	b.WriteString(sectionStyle.Render("Index progress"))
 	b.WriteString("\n")
-	if i.DocumentsRead == 0 && !m.finished {
+	if i.DocumentsTotal == 0 && !m.finished {
 		b.WriteString("loading pages from sqlite...\n")
 	} else {
-		b.WriteString(progressBar(int(i.DocumentsIndexed), int(i.DocumentsRead), m.width))
-		b.WriteString(fmt.Sprintf("  %d / %d pages indexed\n", i.DocumentsIndexed, i.DocumentsRead))
+		b.WriteString(progressBar(int(i.DocumentsIndexed), int(i.DocumentsTotal), m.width))
+		b.WriteString(fmt.Sprintf("  %d / %d pages indexed\n", i.DocumentsIndexed, i.DocumentsTotal))
 	}
-	b.WriteString(mutedStyle.Render(fmt.Sprintf("Terms: %d   Tokens: %d   Stored: %d   Flushes: %d",
-		i.UniqueTerms, i.TotalTokens, i.DocumentsStored, i.Flushes)))
+	b.WriteString(mutedStyle.Render(fmt.Sprintf(
+		"Loaded: %d   Batch: %d   Batch size: %d   Terms: %d   Tokens: %d   Stored: %d   Flushes: %d",
+		i.DocumentsRead, i.CurrentBatch, i.BatchSize, i.UniqueTerms, i.TotalTokens, i.DocumentsStored, i.Flushes,
+	)))
 	b.WriteString("\n\n")
 	b.WriteString(mutedStyle.Render("q quit"))
 	if m.err != nil {

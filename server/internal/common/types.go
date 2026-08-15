@@ -1,6 +1,7 @@
 package common
 
 import (
+	"sync"
 	"time"
 )
 
@@ -41,4 +42,6 @@ type IndexStats struct {
 	DocumentCount    uint64
 	TotalTokenCount  uint64
 	AverageDocLength float64
+
+  sync.Mutex
 }

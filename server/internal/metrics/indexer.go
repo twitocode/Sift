@@ -13,9 +13,13 @@ import (
 )
 
 type IndexerMetrics struct {
+	DocumentsTotal   atomic.Int64
 	DocumentsRead    atomic.Int64
 	DocumentsIndexed atomic.Int64
 	DocumentsSkipped atomic.Int64
+	BatchesRead      atomic.Int64
+	CurrentBatch     atomic.Int64
+	BatchSize        atomic.Int64
 
 	BodyTokens    atomic.Int64
 	TitleTokens   atomic.Int64

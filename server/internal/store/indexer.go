@@ -50,9 +50,21 @@ func (is *IndexerStore) RunTimer(ctx context.Context, wg *sync.WaitGroup, metric
 		is.flush(newCtx)
 	}
 
-	drain := func() {
-		for doc := range is.bufferChan {
-			is.buffer = append(is.buffer, doc)
+	finish := func() {
+		for {
+			select {
+			case doc, ok := <-is.bufferChan:
+				if !ok {
+					runFlush()
+					wg.Done()
+					return
+				}
+				is.buffer = append(is.buffer, doc)
+			default:
+				runFlush()
+				wg.Done()
+				return
+			}
 		}
 	}
 
@@ -60,19 +72,10 @@ func (is *IndexerStore) RunTimer(ctx context.Context, wg *sync.WaitGroup, metric
 	for {
 		select {
 		case <-ctx.Done():
-			drain()
-			runFlush()
-			wg.Done()
+			finish()
 			return
 		case page, ok := <-is.bufferChan:
-			if ctx.Err() != nil {
-				drain()
-				runFlush()
-				wg.Done()
-				return
-			}
 			if !ok {
-				drain()
 				runFlush()
 				wg.Done()
 				return
@@ -95,6 +98,9 @@ func (is *IndexerStore) flush(ctx context.Context) {
 	is.metrics.Flushes.Add(1)
 
 	is.BatchAddDocumentMetadata(ctx, is.buffer)
+
+	//learned what the clear function does
+	clear(is.buffer)
 	is.buffer = is.buffer[:0]
 }
 
@@ -107,6 +113,7 @@ func (is *IndexerStore) Add(ctx context.Context, sm *common.DocumentStats) error
 		return nil
 	}
 }
+
 func (is *IndexerStore) BeforeIndexing(ctx context.Context) {
 	is.log.Info("Attempting to delete previous document stats")
 	err := is.queries.DeleteAllDocuments(ctx)
@@ -118,7 +125,7 @@ func (is *IndexerStore) BeforeIndexing(ctx context.Context) {
 	is.log.Info("Successfully cleaned up indexing documents")
 }
 
-func (is *IndexerStore) AddIndexMetadata(ctx context.Context, data common.IndexStats) {
+func (is *IndexerStore) AddIndexMetadata(ctx context.Context, data *common.IndexStats) {
 	err := is.queries.AddIndexMeta(ctx, db.AddIndexMetaParams{
 		DocumentCount:    int64(data.DocumentCount),
 		TotalTokenCount:  int64(data.TotalTokenCount),

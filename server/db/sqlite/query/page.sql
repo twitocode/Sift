@@ -63,6 +63,24 @@ FROM
 WHERE
   has_been_crawled = TRUE;
 
+-- name: GetPaginatedPageBatch :many
+SELECT
+  id, title, text
+FROM
+  pages
+WHERE
+  has_been_crawled = TRUE
+  AND id > ?
+LIMIT ?;
+
+-- name: GetTotalCrawledPageCount :one
+SELECT
+  COUNT(id)
+FROM
+  pages
+WHERE
+  has_been_crawled = TRUE;
+
 -- name: FindCanonicDuplicatesPages :many
 SELECT
   *

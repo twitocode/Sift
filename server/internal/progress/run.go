@@ -44,14 +44,17 @@ func runPlain(snapshot func() Snapshot, done <-chan error) error {
 		if finished {
 			status = "complete"
 		}
-		if s.Index.DocumentsRead == 0 && !finished {
+		if s.Index.DocumentsTotal == 0 && !finished {
 			fmt.Fprintf(os.Stderr, "\r[%s] loading pages from sqlite...   ", status)
 			return
 		}
-		fmt.Fprintf(os.Stderr, "\r[%s] %d/%d pages indexed  terms=%d tokens=%d stored=%d   ",
+		fmt.Fprintf(os.Stderr, "\r[%s] %d/%d indexed  loaded=%d batch=%d size=%d terms=%d tokens=%d stored=%d   ",
 			status,
 			s.Index.DocumentsIndexed,
+			s.Index.DocumentsTotal,
 			s.Index.DocumentsRead,
+			s.Index.CurrentBatch,
+			s.Index.BatchSize,
 			s.Index.UniqueTerms,
 			s.Index.TotalTokens,
 			s.Index.DocumentsStored,

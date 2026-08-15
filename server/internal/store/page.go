@@ -149,7 +149,9 @@ func (ps *PageStore) flush(ctx context.Context, metrics *metrics.CrawlMetrics) {
 		return
 	}
 	metrics.PagesStored.Add(added)
+	clear(ps.buffer)
 	ps.buffer = ps.buffer[:0]
+
 	ps.log.Info("Flushed page buffer", zap.Int64("count", added))
 }
 
@@ -254,6 +256,40 @@ func (ps *PageStore) GetAll(ctx context.Context) ([]*common.Page, error) {
 	}
 
 	return out, nil
+}
+
+func (ps *PageStore) GetPaginatedPageBatch(ctx context.Context, start int64, limit uint16) ([]*common.Page, error) {
+	out := make([]*common.Page, 0)
+	res, err := ps.queries.GetPaginatedPageBatch(ctx, db.GetPaginatedPageBatchParams{
+		ID:    start,
+		Limit: int64(limit),
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	for _, page := range res {
+		pageInfo := &common.Page{
+			ID:    page.ID,
+			Title: page.Title.String,
+			Text:  page.Text.String,
+		}
+
+		out = append(out, pageInfo)
+	}
+
+	return out, nil
+}
+
+func (ps *PageStore) GetTotalCrawledPageCount(ctx context.Context) (int64, error) {
+	count, err := ps.queries.GetTotalCrawledPageCount(ctx)
+
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
 }
 
 func (ps *PageStore) BatchAssignCanonical(ctx context.Context, canonicalId int64, duplicates []int64) {

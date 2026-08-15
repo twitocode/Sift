@@ -88,6 +88,17 @@ func (sm *SafeMap[K, V]) Values() []V {
 	return values
 }
 
+func (sm *SafeMap[K, V]) ToMap() map[K]V {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	result := make(map[K]V, len(sm.m))
+	for k, v := range sm.m {
+		result[k] = v
+	}
+	return result
+}
+
 func (sm *SafeMap[K, V]) Length() int {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()

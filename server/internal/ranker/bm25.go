@@ -6,7 +6,7 @@ import (
 	"github.com/twitocode/sift/internal/common"
 )
 
-func CalculateBM25(docWithTerm int, terms []string, docTokenCount uint32, docTermFreq uint32, indexStats common.IndexStats) float64 {
+func CalculateBM25(docWithTerm int, terms []string, docTokenCount uint32, docTermFreq uint32, indexStats *common.IndexStats) float64 {
 	score := float64(0)
 
 	fqdi := docTermFreq

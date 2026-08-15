@@ -18,11 +18,11 @@ type Ranker struct {
 	docs         map[uint32]uint32
 	indexerStore *store.IndexerStore
 	pageStore    *store.PageStore
-	index        *common.SafeMap[string, []common.Posting]
+	index        map[string][]common.Posting
 	indexMeta    *common.IndexStats
 }
 
-func NewRanker(log *zap.Logger, cfg *common.Config, index *common.SafeMap[string, []common.Posting], indexerStore *store.IndexerStore, pageStore *store.PageStore) *Ranker {
+func NewRanker(log *zap.Logger, cfg *common.Config, index map[string][]common.Posting, indexerStore *store.IndexerStore, pageStore *store.PageStore) *Ranker {
 	return &Ranker{
 		log:          log,
 		cfg:          cfg,
@@ -65,7 +65,7 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 	scores := make(map[uint32]float64)
 
 	for _, token := range tokens {
-		postings, ok := r.index.Get(token)
+		postings, ok := r.index[token]
 
 		if !ok {
 			continue
@@ -78,7 +78,7 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 			}
 
 			tokenCount := r.docs[posting.PageID]
-			score += CalculateBM25(len(postings), tokens, tokenCount, posting.Frequency, *r.indexMeta)
+			score += CalculateBM25(len(postings), tokens, tokenCount, posting.Frequency, r.indexMeta)
 			if posting.MatchesTitle {
 				score += 10
 			}

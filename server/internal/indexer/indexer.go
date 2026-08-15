@@ -33,56 +33,97 @@ func NewIndexer(log *zap.Logger, cfg *common.Config, pageStore *store.PageStore,
 	}
 }
 
-func (in *Indexer) Generate() *common.SafeMap[string, []common.Posting] {
+func (in *Indexer) Generate() map[string][]common.Posting {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	in.log.Info("Started Indexing")
-	var wg sync.WaitGroup
+	var storeWg sync.WaitGroup
 
-	wg.Add(1)
+	storeWg.Add(1)
 	//in.indexerStore.BeforeIndexing(ctx)
-	go in.indexerStore.RunTimer(ctx, &wg, in.metrics)
+	go in.indexerStore.RunTimer(ctx, &storeWg, in.metrics)
 	//TODO: make indexer run on a ticker (or cron job)
 	//TODO: add a vector store - calculate embeddings alongside invert index
-	pages, err := in.pageStore.GetAll(ctx)
-
-	if err != nil {
-		in.log.Fatal("Aborted Indexing", zap.Error(err))
-		return nil
-	}
 
 	start := time.Now()
-	in.metrics.DocumentsRead.Add(int64(len(pages)))
-
 	indexStats := common.IndexStats{}
 
-	for _, page := range pages {
-		document := in.Index(ctx, page)
-		indexStats.DocumentCount++
-		indexStats.TotalTokenCount += uint64(document.TokenCount)
-		in.indexerStore.Add(ctx, document)
-		in.metrics.DocumentsIndexed.Add(1)
-		in.metrics.TotalTokens.Store(int64(indexStats.TotalTokenCount))
-		in.metrics.UniqueTerms.Store(int64(len(in.index.Keys())))
+	pageSearchIndex := 0
+	totalPageCount, err := in.pageStore.GetTotalCrawledPageCount(ctx)
+	if err != nil {
+		in.log.Error("Could not get page count from db", zap.Error(err))
+		in.shutdown(cancel)
+		storeWg.Wait()
+		return in.index.ToMap()
 	}
 
-	indexStats.AverageDocLength = float64(indexStats.TotalTokenCount) / float64(indexStats.DocumentCount)
-	in.indexerStore.AddIndexMetadata(ctx, indexStats)
+	batchSize := totalPageCount / 10
+	if batchSize < 1 {
+		batchSize = 1
+	}
+
+	workerCount := 50
+	workerChan := make(chan []*common.Page, workerCount)
+	var workerWg sync.WaitGroup
+
+	in.metrics.DocumentsTotal.Store(totalPageCount)
+	in.metrics.BatchSize.Store(batchSize)
+
+	for {
+		pages, err := in.pageStore.GetPaginatedPageBatch(ctx, int64(pageSearchIndex), uint16(batchSize))
+		if err != nil {
+			in.log.Error("Could not get page batch from db", zap.Int("index", pageSearchIndex), zap.Error(err))
+			break
+		}
+		if len(pages) == 0 {
+			break
+		}
+
+		chunks := common.SplitIntoNChunks(pages, workerCount)
+		workerWg.Add(len(chunks))
+		in.spawnWorkers(ctx, len(chunks), &workerInfo{
+			indexStats: &indexStats,
+			wg:         &workerWg,
+			workerChan: workerChan,
+		})
+
+		for _, chunk := range chunks {
+			workerChan <- chunk
+		}
+
+		workerWg.Wait()
+		in.metrics.DocumentsRead.Add(int64(len(pages)))
+		in.metrics.BatchesRead.Add(1)
+		in.metrics.CurrentBatch.Store(in.metrics.BatchesRead.Load())
+
+		pageSearchIndex = int(pages[len(pages)-1].ID)
+	}
+
+	close(workerChan)
+	if indexStats.DocumentCount > 0 {
+		indexStats.AverageDocLength = float64(indexStats.TotalTokenCount) / float64(indexStats.DocumentCount)
+	}
+	in.indexerStore.AddIndexMetadata(ctx, &indexStats)
 	in.shutdown(cancel)
-	wg.Wait()
+	storeWg.Wait()
 
 	elapsed := time.Since(start)
 
 	in.metrics.PrintSummary(elapsed)
-	return in.index
+	return in.index.ToMap()
 }
 
 func (in *Indexer) Snapshot() progress.Snapshot {
 	return progress.Snapshot{
 		Index: progress.IndexSnapshot{
+			DocumentsTotal:   in.metrics.DocumentsTotal.Load(),
 			DocumentsRead:    in.metrics.DocumentsRead.Load(),
 			DocumentsIndexed: in.metrics.DocumentsIndexed.Load(),
 			DocumentsStored:  in.metrics.DocumentsStored.Load(),
+			BatchesRead:      in.metrics.BatchesRead.Load(),
+			CurrentBatch:     in.metrics.CurrentBatch.Load(),
+			BatchSize:        in.metrics.BatchSize.Load(),
 			TotalTokens:      in.metrics.TotalTokens.Load(),
 			UniqueTerms:      in.metrics.UniqueTerms.Load(),
 			Flushes:          in.metrics.Flushes.Load(),
@@ -145,6 +186,51 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.Documen
 	}
 
 	return document
+}
+
+type workerInfo struct {
+	indexStats *common.IndexStats
+	wg         *sync.WaitGroup
+	workerChan <-chan []*common.Page
+}
+
+func (in *Indexer) spawnWorkers(ctx context.Context, count int, info *workerInfo) {
+	for i := range count {
+		go func() {
+			defer info.wg.Done()
+
+		Outer:
+			for {
+				select {
+				case <-ctx.Done():
+					if ctx.Err() != nil {
+						in.log.Info("Stopped worker", zap.Int("worker", i))
+						return
+					}
+				case pages, ok := <-info.workerChan:
+					if !ok {
+						return
+					}
+
+					for _, page := range pages {
+						document := in.Index(ctx, page)
+
+						info.indexStats.Lock()
+						info.indexStats.DocumentCount++
+						info.indexStats.TotalTokenCount += uint64(document.TokenCount)
+						info.indexStats.Unlock()
+
+						in.indexerStore.Add(ctx, document)
+						in.metrics.DocumentsIndexed.Add(1)
+						in.metrics.TotalTokens.Store(int64(info.indexStats.TotalTokenCount))
+						in.metrics.UniqueTerms.Store(int64(in.index.Length()))
+					}
+
+					break Outer
+				}
+			}
+		}()
+	}
 }
 
 func (in Indexer) shutdown(cancel context.CancelFunc) {
