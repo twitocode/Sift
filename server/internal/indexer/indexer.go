@@ -97,7 +97,7 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.Documen
 		if entry, ok := postingMap[token]; !ok {
 			postingMap[token] = common.Posting{
 				Frequency:    1,
-				PageID:       page.ID,
+				PageID:       uint32(page.ID),
 				MatchesTitle: i >= titlesStartIndex,
 			}
 			in.metrics.TotalPostings.Add(1)

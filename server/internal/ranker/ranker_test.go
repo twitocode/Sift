@@ -12,7 +12,7 @@ func TestSortPagesByScoreDescending(t *testing.T) {
 		{ID: 2},
 		{ID: 3},
 	}
-	scores := map[int64]float64{
+	scores := map[uint32]float64{
 		1: 1.25,
 		2: 3.75,
 		3: 2.5,

@@ -6,11 +6,11 @@ import (
 	"github.com/twitocode/sift/internal/common"
 )
 
-func CalculateBM25(docWithTerm int, terms []string, docTokenCount uint64, docTermFreq uint64, indexStats common.IndexStats) float64 {
+func CalculateBM25(docWithTerm int, terms []string, docTokenCount uint32, docTermFreq uint32, indexStats common.IndexStats) float64 {
 	score := float64(0)
 
 	fqdi := docTermFreq
-	nqi := float64(docTokenCount)
+	nqi := float64(docWithTerm)
 	IDF := math.Log((float64(indexStats.DocumentCount)-nqi+0.5)/(nqi+0.5) + 1)
 	D := docTokenCount
 	avgdl := indexStats.AverageDocLength

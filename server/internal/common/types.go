@@ -13,29 +13,28 @@ type Page struct {
 	Description       string
 	Text              string
 	Links             []URL
-	StatusCode        int // some pages return 429 stuff like that so i can filter out later if needed
+	StatusCode        int
 	CrawledAt         time.Time
-	InEnglish         bool
-	ContentHash       uint64 //TODO: duplication detection, hash text form page (different urls same text)
-	HasBeenCrawled    bool
+	ContentHash       uint64
 	DuplicateOf       int64
 	FoundCanonical    URL
+	InEnglish         bool
+	HasBeenCrawled    bool
 	ResolvedCanonical bool
 }
 
 type Posting struct {
-	PageID     int64
-	Frequency uint64
+	PageID    uint32
+	Frequency uint32
 
 	//ranks higher
 	MatchesTitle bool
 }
 
 type DocumentStats struct {
+	PageID     int64
+	ID         int64
 	TokenCount uint32
-
-	PageID int64
-	ID     int64
 }
 
 type IndexStats struct {

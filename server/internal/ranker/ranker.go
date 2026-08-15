@@ -15,7 +15,7 @@ type Ranker struct {
 	log *zap.Logger
 	cfg *common.Config
 
-	docs         map[int64]common.DocumentStats
+	docs         map[uint32]uint32
 	indexerStore *store.IndexerStore
 	pageStore    *store.PageStore
 	index        *common.SafeMap[string, []common.Posting]
@@ -34,8 +34,8 @@ func NewRanker(log *zap.Logger, cfg *common.Config, index *common.SafeMap[string
 
 func (r *Ranker) LoadDocuments(ctx context.Context) {
 	res := r.indexerStore.LoadAllDocuments(ctx)
-	docs := common.ToMap(res, func(e common.DocumentStats) (int64, common.DocumentStats) {
-		return e.PageID, e
+	docs := common.ToMap(res, func(e common.DocumentStats) (uint32, uint32) {
+		return uint32(e.PageID), e.TokenCount
 	})
 
 	r.docs = docs
@@ -46,12 +46,12 @@ func (r *Ranker) LoadIndexMeta(ctx context.Context) {
 	r.indexMeta = meta
 }
 
-func sortPagesByScore(pages []*common.Page, scores map[int64]float64) {
+func sortPagesByScore(pages []*common.Page, scores map[uint32]float64) {
 	slices.SortFunc(pages, func(a *common.Page, b *common.Page) int {
 		switch {
-		case scores[a.ID] > scores[b.ID]:
+		case scores[uint32(a.ID)] > scores[uint32(b.ID)]:
 			return -1
-		case scores[a.ID] < scores[b.ID]:
+		case scores[uint32(a.ID)] < scores[uint32(b.ID)]:
 			return 1
 		default:
 			return 0
@@ -62,7 +62,7 @@ func sortPagesByScore(pages []*common.Page, scores map[int64]float64) {
 
 func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 	tokens := indexer.Tokenize(query)
-	scores := make(map[int64]float64)
+	scores := make(map[uint32]float64)
 
 	for _, token := range tokens {
 		postings, ok := r.index.Get(token)
@@ -77,8 +77,8 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 				scores[posting.PageID] = 0
 			}
 
-			doc := r.docs[posting.PageID]
-			score += CalculateBM25(len(postings), tokens, uint64(doc.TokenCount), posting.Frequency, *r.indexMeta)
+			tokenCount := r.docs[posting.PageID]
+			score += CalculateBM25(len(postings), tokens, tokenCount, posting.Frequency, *r.indexMeta)
 			if posting.MatchesTitle {
 				score += 10
 			}
@@ -88,7 +88,7 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 
 	results := make([]*common.Page, 0, len(scores))
 	for id := range scores {
-		pageInfo, err := r.pageStore.GetByID(ctx, id)
+		pageInfo, err := r.pageStore.GetByID(ctx, int64(id))
 		if err != nil {
 			continue
 		}
@@ -103,7 +103,7 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 		if i == 50 {
 			break
 		}
-		fmt.Printf("%.2f: %s\n", scores[page.ID], page.Title)
+		fmt.Printf("%.2f: %s\n", scores[uint32(page.ID)], page.Title)
 	}
 
 	return results
