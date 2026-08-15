@@ -1,4 +1,4 @@
-package indexer
+package store
 
 import (
 	"context"
@@ -6,7 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/db"
+
 	"github.com/twitocode/sift/internal/metrics"
 	"go.uber.org/zap"
 )
@@ -15,8 +17,8 @@ type IndexerStore struct {
 	sqliteDb   *sql.DB
 	queries    *db.Queries
 	log        *zap.Logger
-	bufferChan chan *DocumentStats
-	buffer     []*DocumentStats
+	bufferChan chan *common.DocumentStats
+	buffer     []*common.DocumentStats
 	bufferSize int
 	metrics    *metrics.IndexerMetrics
 
@@ -31,8 +33,8 @@ func NewIndexerStore(sqliteDb *sql.DB, log *zap.Logger) *IndexerStore {
 		sqliteDb:   sqliteDb,
 		log:        log,
 		bufferSize: bufferSize,
-		bufferChan: make(chan *DocumentStats, bufferSize*2),
-		buffer:     make([]*DocumentStats, 0),
+		bufferChan: make(chan *common.DocumentStats, bufferSize*2),
+		buffer:     make([]*common.DocumentStats, 0),
 	}
 }
 
@@ -97,7 +99,7 @@ func (is *IndexerStore) flush(ctx context.Context) {
 }
 
 // doing a direct insert for now
-func (is *IndexerStore) Add(ctx context.Context, sm *DocumentStats) error {
+func (is *IndexerStore) Add(ctx context.Context, sm *common.DocumentStats) error {
 	select {
 	case <-ctx.Done():
 		return nil
@@ -116,7 +118,7 @@ func (is *IndexerStore) BeforeIndexing(ctx context.Context) {
 	is.log.Info("Successfully cleaned up indexing documents")
 }
 
-func (is *IndexerStore) AddIndexMetadata(ctx context.Context, data IndexStats) {
+func (is *IndexerStore) AddIndexMetadata(ctx context.Context, data common.IndexStats) {
 	err := is.queries.AddIndexMeta(ctx, db.AddIndexMetaParams{
 		DocumentCount:    int64(data.DocumentCount),
 		TotalTokenCount:  int64(data.TotalTokenCount),
@@ -129,7 +131,7 @@ func (is *IndexerStore) AddIndexMetadata(ctx context.Context, data IndexStats) {
 	}
 }
 
-func (is *IndexerStore) BatchAddDocumentMetadata(ctx context.Context, meta []*DocumentStats) {
+func (is *IndexerStore) BatchAddDocumentMetadata(ctx context.Context, meta []*common.DocumentStats) {
 	tx, err := is.sqliteDb.Begin()
 
 	if err != nil {
@@ -162,10 +164,9 @@ func (is *IndexerStore) BatchAddDocumentMetadata(ctx context.Context, meta []*Do
 		tx.Rollback()
 		return
 	}
-
 }
 
-func (is *IndexerStore) LoadLatestIndexMetadata(ctx context.Context) *IndexStats {
+func (is *IndexerStore) LoadLatestIndexMetadata(ctx context.Context) *common.IndexStats {
 	data, err := is.queries.GetLatestIndexMeta(ctx)
 
 	if err != nil {
@@ -174,14 +175,14 @@ func (is *IndexerStore) LoadLatestIndexMetadata(ctx context.Context) *IndexStats
 		return nil
 	}
 
-	return &IndexStats{
+	return &common.IndexStats{
 		DocumentCount:    uint64(data.DocumentCount),
 		TotalTokenCount:  uint64(data.TotalTokenCount),
 		AverageDocLength: float64(data.AverageDocLength),
 	}
 }
 
-func (is *IndexerStore) LoadAllDocuments(ctx context.Context) []DocumentStats {
+func (is *IndexerStore) LoadAllDocuments(ctx context.Context) []common.DocumentStats {
 	res, err := is.queries.GetAllDocumentMeta(ctx)
 
 	if err != nil {
@@ -190,10 +191,10 @@ func (is *IndexerStore) LoadAllDocuments(ctx context.Context) []DocumentStats {
 		return nil
 	}
 
-	out := make([]DocumentStats, 0)
+	out := make([]common.DocumentStats, 0)
 
 	for _, data := range res {
-		stats := DocumentStats{
+		stats := common.DocumentStats{
 			TokenCount: uint32(data.TokenCount),
 			ID:         data.ID,
 			PageID:     data.PageID,
@@ -207,12 +208,4 @@ func (is *IndexerStore) LoadAllDocuments(ctx context.Context) []DocumentStats {
 
 func (is *IndexerStore) Shutdown() {
 	close(is.bufferChan)
-}
-
-func BoolToInt64(b bool) int64 {
-	if b {
-		return 1
-	}
-
-	return 0
 }

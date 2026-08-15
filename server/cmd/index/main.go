@@ -14,7 +14,7 @@ import (
 
 func main() {
 	log := common.NewLogger(os.Getenv, zap.DebugLevel)
-	common.NewConfig(os.Getenv)
+	cfg := common.NewConfig(os.Getenv)
 
 	sqliteDb, err := sql.Open("sqlite", common.SQLitePath())
 
@@ -24,6 +24,6 @@ func main() {
 	log.Info("Connected to Sqlite")
 
 	pageStore := store.NewPageStore(sqliteDb, log)
-	indexStore := indexer.NewIndexerStore(sqliteDb, log)
-	indexer.NewIndexer(log, pageStore, indexStore).Start()
+	indexStore := store.NewIndexerStore(sqliteDb, log)
+	indexer.NewIndexer(log, cfg, pageStore, indexStore).Generate()
 }

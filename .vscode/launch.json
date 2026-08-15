@@ -35,6 +35,14 @@
       "mode": "debug",
       "cwd": "${workspaceFolder}/server",
       "program": "${workspaceFolder}/server/cmd/index/main.go"
+    },
+    {
+      "name": "Ranking",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "cwd": "${workspaceFolder}/server",
+      "program": "${workspaceFolder}/server/cmd/rank/main.go"
     }
   ]
 }

@@ -22,7 +22,7 @@ VALUES
 
 -- name: GetLatestIndexMeta :one
 SELECT
-  *
+  document_count, total_token_count, average_doc_length
 FROM
   index_metadata
 ORDER BY

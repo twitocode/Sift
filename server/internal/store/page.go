@@ -9,6 +9,7 @@ import (
 	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/db"
 	"github.com/twitocode/sift/internal/metrics"
+	utils "github.com/twitocode/sift/internal/store/common"
 	"go.uber.org/zap"
 )
 
@@ -117,7 +118,7 @@ func (ps *PageStore) flush(ctx context.Context, metrics *metrics.CrawlMetrics) {
 			},
 			HasBeenCrawled: sql.NullInt64{
 				Valid: true,
-				Int64: BoolToInt64(sm.HasBeenCrawled),
+				Int64: utils.BoolToInt64(sm.HasBeenCrawled),
 			},
 			ContentHash: sql.NullInt64{
 				Valid: true,
@@ -171,8 +172,34 @@ func (ps *PageStore) Contains(ctx context.Context, url common.URL) (bool, error)
 	return exists != 0, err
 }
 
-func (ps *PageStore) Get(ctx context.Context, url common.URL) (*common.Page, error) {
+func (ps *PageStore) GetByURL(ctx context.Context, url common.URL) (*common.Page, error) {
 	page, err := ps.queries.GetPageInfoByURL(ctx, url.String())
+
+	if err != nil {
+		return nil, err
+	}
+
+	pageInfo := &common.Page{
+		ID:                page.ID,
+		ContentHash:       uint64(page.ContentHash.Int64),
+		Title:             page.Title.String,
+		Text:              page.Text.String,
+		Description:       page.Description.String,
+		FinalURL:          common.URL(page.FinalUrl),
+		CrawledAt:         page.CrawledAt.Time,
+		StatusCode:        int(page.StatusCode.Int64),
+		HasBeenCrawled:    page.HasBeenCrawled.Int64 == 1,
+		FoundCanonical:    common.URL(page.FoundCanonical.String),
+		ResolvedCanonical: page.ResolvedCanonical.Int64 == 1,
+	}
+
+	host, _ := common.URL(page.FinalUrl).GetHost()
+	pageInfo.Host = host
+	return pageInfo, nil
+}
+
+func (ps *PageStore) GetByID(ctx context.Context, id int64) (*common.Page, error) {
+	page, err := ps.queries.GetPageInfoByID(ctx, id)
 
 	if err != nil {
 		return nil, err
@@ -316,12 +343,4 @@ func (ps *PageStore) FindCanonicDuplicatesPages(ctx context.Context) ([]*common.
 	}
 
 	return out, nil
-}
-
-func BoolToInt64(b bool) int64 {
-	if b {
-		return 1
-	}
-
-	return 0
 }

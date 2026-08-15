@@ -6,6 +6,7 @@ package db
 
 import (
 	"database/sql"
+	"time"
 )
 
 type Document struct {
@@ -15,9 +16,11 @@ type Document struct {
 }
 
 type IndexMetadatum struct {
+	ID               int64
 	DocumentCount    int64
 	TotalTokenCount  int64
 	AverageDocLength int64
+	CreatedAt        time.Time
 }
 
 type Link struct {

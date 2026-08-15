@@ -16,5 +16,4 @@ CREATE TABLE
 
 -- +goose Down
 DROP TABLE documents;
-
 DROP TABLE index_metadata;

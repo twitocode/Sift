@@ -15,23 +15,25 @@ import (
 type Indexer struct {
 	log          *zap.Logger
 	pageStore    *store.PageStore
-	indexerStore *IndexerStore
+	indexerStore *store.IndexerStore
 	metrics      *metrics.IndexerMetrics
+	cfg          *common.Config
 
-	index *common.SafeMap[string, []Posting]
+	index *common.SafeMap[string, []common.Posting]
 }
 
-func NewIndexer(log *zap.Logger, pageStore *store.PageStore, indexerStore *IndexerStore) *Indexer {
+func NewIndexer(log *zap.Logger, cfg *common.Config, pageStore *store.PageStore, indexerStore *store.IndexerStore) *Indexer {
 	return &Indexer{
 		log:          log,
 		pageStore:    pageStore,
 		indexerStore: indexerStore,
+		cfg:          cfg,
 		metrics:      metrics.NewIndexerMetrics(log),
-		index:        common.NewSafeMap[string, []Posting](),
+		index:        common.NewSafeMap[string, []common.Posting](),
 	}
 }
 
-func (in *Indexer) Start() {
+func (in *Indexer) Generate()*common.SafeMap[string, []common.Posting] {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	in.log.Info("Started Indexing")
@@ -46,13 +48,13 @@ func (in *Indexer) Start() {
 
 	if err != nil {
 		in.log.Fatal("Aborted Indexing", zap.Error(err))
-		return
+		return nil
 	}
 
 	start := time.Now()
 	in.metrics.DocumentsRead.Add(int64(len(pages)))
 
-	indexStats := IndexStats{}
+	indexStats := common.IndexStats{}
 
 	for _, page := range pages {
 		document := in.Index(ctx, page)
@@ -62,20 +64,20 @@ func (in *Indexer) Start() {
 		in.metrics.DocumentsIndexed.Add(1)
 	}
 
+	indexStats.AverageDocLength = float64(indexStats.TotalTokenCount) / float64(indexStats.DocumentCount)
 	in.indexerStore.AddIndexMetadata(ctx, indexStats)
 	in.shutdown(cancel)
 	wg.Wait()
-
-	indexStats.AverageDocLength = float64(indexStats.TotalTokenCount) / float64(indexStats.DocumentCount)
 
 	elapsed := time.Since(start)
 	in.metrics.TotalTokens.Add(int64(indexStats.TotalTokenCount))
 	in.metrics.UniqueTerms.Add(int64(len(in.index.Keys())))
 
 	in.metrics.PrintSummary(elapsed)
+  return in.index
 }
 
-func (in *Indexer) Index(ctx context.Context, page *common.Page) *DocumentStats {
+func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.DocumentStats {
 	textTokens := Tokenize(page.Text)
 	titleTokens := Tokenize(page.Title)
 
@@ -85,17 +87,17 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *DocumentStats 
 	in.metrics.BodyTokens.Add(int64(len(textTokens)))
 	in.metrics.TitleTokens.Add(int64(len(titleTokens)))
 
-	postingMap := make(map[string]Posting)
-	document := &DocumentStats{
+	postingMap := make(map[string]common.Posting)
+	document := &common.DocumentStats{
 		TokenCount: uint32(len(allTokens)),
 		PageID:     page.ID,
 	}
 
 	for i, token := range allTokens {
 		if entry, ok := postingMap[token]; !ok {
-			postingMap[token] = Posting{
+			postingMap[token] = common.Posting{
 				Frequency:    1,
-				DocID:        page.ID,
+				PageID:       page.ID,
 				MatchesTitle: i >= titlesStartIndex,
 			}
 			in.metrics.TotalPostings.Add(1)
@@ -117,7 +119,7 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *DocumentStats 
 	for token, posting := range postingMap {
 		postings, ok := in.index.Get(token)
 		if !ok {
-			in.index.Set(token, []Posting{posting})
+			in.index.Set(token, []common.Posting{posting})
 			continue
 		}
 

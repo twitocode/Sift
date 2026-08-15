@@ -123,9 +123,15 @@ LIMIT
   1
 `
 
-func (q *Queries) GetLatestIndexMeta(ctx context.Context) (IndexMetadatum, error) {
+type GetLatestIndexMetaRow struct {
+	DocumentCount    int64
+	TotalTokenCount  int64
+	AverageDocLength int64
+}
+
+func (q *Queries) GetLatestIndexMeta(ctx context.Context) (GetLatestIndexMetaRow, error) {
 	row := q.db.QueryRowContext(ctx, getLatestIndexMeta)
-	var i IndexMetadatum
+	var i GetLatestIndexMetaRow
 	err := row.Scan(&i.DocumentCount, &i.TotalTokenCount, &i.AverageDocLength)
 	return i, err
 }

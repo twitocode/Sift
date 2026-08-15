@@ -6,8 +6,6 @@ import (
 	"os"
 
 	"github.com/twitocode/sift/internal/common"
-	"github.com/twitocode/sift/internal/crawler"
-	"github.com/twitocode/sift/internal/crawler/dedup"
 	"github.com/twitocode/sift/internal/indexer"
 	"github.com/twitocode/sift/internal/ranker"
 	"github.com/twitocode/sift/internal/store"
@@ -30,14 +28,6 @@ func main() {
 	pageStore := store.NewPageStore(sqliteDb, log)
 	indexerStore := store.NewIndexerStore(sqliteDb, log)
 
-	dbCtx := context.Background()
-	pageStore.BeforeCrawl(dbCtx)
-	indexerStore.BeforeIndexing(dbCtx)
-	crawler.NewEngine(log, pageStore, cfg).Start()
-
-	deduplicator := dedup.NewDeduplicator(pageStore, log)
-	deduplicator.Start(context.Background())
-
 	in := indexer.NewIndexer(log, cfg, pageStore, indexerStore)
 	index := in.Generate()
 
@@ -46,5 +36,6 @@ func main() {
 	ranker.LoadDocuments(ctx)
 	ranker.LoadIndexMeta(ctx)
 
-	ranker.Query(ctx, "Generative Artificial Intelligence")
+	// ranker.Query(ctx, "How does Generative Artificial Intelligence work?")
+	ranker.Query(ctx, "President donald j trump ")
 }

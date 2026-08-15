@@ -13,6 +13,28 @@ func Map[T any, O any](slice []T, f func(e T, i int) (O, bool)) []O {
 	return result
 }
 
+func ToStructMap[T comparable, K comparable](s []T, f func(e T) K) map[K]struct{} {
+	out := make(map[K]struct{})
+
+	for _, e := range s {
+		key := f(e)
+		out[key] = struct{}{}
+	}
+
+	return out
+}
+
+func ToMap[T comparable, K comparable, V any](s []T, f func(e T) (K, V)) map[K]V {
+	out := make(map[K]V)
+
+	for _, e := range s {
+		key, value := f(e)
+		out[key] = value
+	}
+
+	return out
+}
+
 func Intersection[T comparable](s1 []T, s2 []T) []T {
 	out := make([]T, 0)
 

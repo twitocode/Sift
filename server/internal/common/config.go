@@ -26,6 +26,7 @@ type Config struct {
 	MaxPendingURLs       int      `env:"MAX_PENDING_URLS"`
 	DispatchDelay        int      `env:"JOB_DISPATCH_DELAY"`
 	ShowCrawlStats       bool     `env:"SHOW_CRAWL_STATS"`
+	ShowIndexingStats       bool     `env:"SHOW_INDEXING_STATS"`
 }
 
 func loadDotEnv() {
