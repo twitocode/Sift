@@ -43,6 +43,7 @@ func main() {
 	if err := progress.Run("index", in.Snapshot, done); err != nil {
 		log.Error("progress ui", zap.Error(err))
 	}
+	in.PrintSummary()
 
 	index := (<-result).index
 	ctx := context.Background()
@@ -50,6 +51,8 @@ func main() {
 	ranker.LoadDocuments(ctx)
 	ranker.LoadIndexMeta(ctx)
 
-	// ranker.Query(ctx, "How does Generative Artificial Intelligence work?")
+	ranker.Query(ctx, "How does Generative Artificial Intelligence work?")
 	ranker.Query(ctx, "President donald j trump ")
+	//ranker.Query(ctx, "Mental health resources for students ")
+	ranker.Query(ctx, "gItHuB access tokens")
 }

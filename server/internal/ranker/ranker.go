@@ -98,9 +98,10 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 
 	sortPagesByScore(results, scores)
 
-	fmt.Printf("Results:\n")
+	fmt.Printf("Query: %s\n", query)
+	fmt.Printf("Results:\n\n")
 	for i, page := range results {
-		if i == 50 {
+		if i == 10 {
 			break
 		}
 		fmt.Printf("%.2f: %s\n", scores[uint32(page.ID)], page.Title)

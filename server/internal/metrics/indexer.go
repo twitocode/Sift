@@ -44,7 +44,7 @@ func NewIndexerMetrics(log *zap.Logger) *IndexerMetrics {
 }
 
 func (im *IndexerMetrics) PrintSummary(duration time.Duration) {
-	im.log.Info("Crawling Summary")
+	im.log.Info("Indexing Summary")
 
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
@@ -56,7 +56,7 @@ func (im *IndexerMetrics) PrintSummary(duration time.Duration) {
 		lightGray = lipgloss.Color("241")
 
 		headerStyle  = lipgloss.NewStyle().Foreground(purple).Bold(true).Align(lipgloss.Center)
-		cellStyle    = lipgloss.NewStyle().Padding(0, 1).Width(14)
+		cellStyle    = lipgloss.NewStyle().Padding(0, 1)
 		oddRowStyle  = cellStyle.Foreground(gray)
 		evenRowStyle = cellStyle.Foreground(lightGray)
 	)
@@ -75,7 +75,6 @@ func (im *IndexerMetrics) PrintSummary(duration time.Duration) {
 			}
 		}).
 		Headers("Data Point", "Value").
-		Width(40).
 		Rows(rows...)
 
 	lipgloss.Println(t)

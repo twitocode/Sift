@@ -38,17 +38,14 @@ func main() {
 	engine := crawler.NewEngine(log, pageStore, cfg)
 	in := indexer.NewIndexer(log, cfg, pageStore, indexerStore)
 	done := make(chan error, 1)
+	indexed := make(chan map[string][]common.Posting, 1)
 	go func() {
 		engine.Start()
 
 		deduplicator := dedup.NewDeduplicator(pageStore, log)
 		deduplicator.Start(context.Background())
 
-		index := in.Generate()
-		ranker := ranker.NewRanker(log, cfg, index, indexerStore, pageStore)
-		ranker.LoadDocuments(context.Background())
-		ranker.LoadIndexMeta(context.Background())
-		ranker.Query(context.Background(), "Generative Artificial Intelligence")
+		indexed <- in.Generate()
 		close(done)
 	}()
 
@@ -58,4 +55,12 @@ func main() {
 		crawl.Index = index.Index
 		return crawl
 	}, done)
+  
+	engine.PrintSummary()
+	in.PrintSummary()
+
+	ranker := ranker.NewRanker(log, cfg, <-indexed, indexerStore, pageStore)
+	ranker.LoadDocuments(context.Background())
+	ranker.LoadIndexMeta(context.Background())
+	ranker.Query(context.Background(), "Generative Artificial Intelligence")
 }

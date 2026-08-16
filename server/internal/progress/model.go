@@ -104,46 +104,53 @@ func (m Model) View() string {
 	c := m.current.Crawl
 	i := m.current.Index
 	elapsed := time.Since(m.started).Round(time.Second)
+	showCrawl := c.Limit > 0 || c.PagesCrawled > 0 || c.URLsDiscovered > 0 || c.PagesStored > 0
+	showIndex := !showCrawl || i.DocumentsTotal > 0 || i.DocumentsIndexed > 0 || i.DocumentsRead > 0
 
 	var b strings.Builder
 	b.WriteString(mutedStyle.Render(fmt.Sprintf("%s · %s", status, elapsed)))
 	b.WriteString("\n\n")
 
-	b.WriteString(sectionStyle.Render("Crawl progress"))
-	b.WriteString("\n")
-	b.WriteString(progressBar(c.PagesCrawled, c.Limit, m.width))
-	b.WriteString(fmt.Sprintf("  %d / %d pages\n\n", c.PagesCrawled, c.Limit))
+	if showCrawl {
+		b.WriteString(sectionStyle.Render("Crawl progress"))
+		b.WriteString("\n")
+		b.WriteString(progressBar(c.PagesCrawled, c.Limit, m.width))
+		b.WriteString(fmt.Sprintf("  %d / %d pages\n\n", c.PagesCrawled, c.Limit))
 
-	b.WriteString(panel("Crawl activity",
-		metric("URLs discovered", c.URLsDiscovered),
-		metric("URLs fetched", c.URLsFetched),
-		metric("Pages stored", c.PagesStored),
-		metric("Fetch failures", c.FetchFailures),
-		metric("In flight", c.InFlight),
-	))
-	b.WriteString("\n")
-	b.WriteString(panel("Frontier",
-		metric("Pending URLs", c.PendingURLs),
-		metric("Unique hosts", c.UniqueHosts),
-		metric("Available hosts", c.AvailableHosts),
-		metric("Locked hosts", c.LockedHosts),
-		metric("Cooldown hosts", c.CooldownHosts),
-	))
-	b.WriteString("\n")
-
-	b.WriteString(sectionStyle.Render("Index progress"))
-	b.WriteString("\n")
-	if i.DocumentsTotal == 0 && !m.finished {
-		b.WriteString("loading pages from sqlite...\n")
-	} else {
-		b.WriteString(progressBar(int(i.DocumentsIndexed), int(i.DocumentsTotal), m.width))
-		b.WriteString(fmt.Sprintf("  %d / %d pages indexed\n", i.DocumentsIndexed, i.DocumentsTotal))
+		b.WriteString(panel("Crawl activity",
+			metric("URLs discovered", c.URLsDiscovered),
+			metric("URLs fetched", c.URLsFetched),
+			metric("Pages stored", c.PagesStored),
+			metric("Fetch failures", c.FetchFailures),
+			metric("In flight", c.InFlight),
+		))
+		b.WriteString("\n")
+		b.WriteString(panel("Frontier",
+			metric("Pending URLs", c.PendingURLs),
+			metric("Unique hosts", c.UniqueHosts),
+			metric("Available hosts", c.AvailableHosts),
+			metric("Locked hosts", c.LockedHosts),
+			metric("Cooldown hosts", c.CooldownHosts),
+		))
+		b.WriteString("\n")
 	}
-	b.WriteString(mutedStyle.Render(fmt.Sprintf(
-		"Loaded: %d   Batch: %d   Batch size: %d   Terms: %d   Tokens: %d   Stored: %d   Flushes: %d",
-		i.DocumentsRead, i.CurrentBatch, i.BatchSize, i.UniqueTerms, i.TotalTokens, i.DocumentsStored, i.Flushes,
-	)))
-	b.WriteString("\n\n")
+
+	if showIndex {
+		b.WriteString(sectionStyle.Render("Index progress"))
+		b.WriteString("\n")
+		if i.DocumentsTotal == 0 && !m.finished {
+			b.WriteString("loading pages from sqlite...\n")
+		} else {
+			b.WriteString(progressBar(int(i.DocumentsIndexed), int(i.DocumentsTotal), m.width))
+			b.WriteString(fmt.Sprintf("  %d / %d pages indexed\n", i.DocumentsIndexed, i.DocumentsTotal))
+		}
+		b.WriteString(mutedStyle.Render(fmt.Sprintf(
+			"Loaded: %d   Batch: %d   Batch size: %d   Terms: %d   Tokens: %d   Stored: %d   Flushes: %d",
+			i.DocumentsRead, i.CurrentBatch, i.BatchSize, i.UniqueTerms, i.TotalTokens, i.DocumentsStored, i.Flushes,
+		)))
+		b.WriteString("\n\n")
+	}
+
 	b.WriteString(mutedStyle.Render("q quit"))
 	if m.err != nil {
 		b.WriteString(fmt.Sprintf("\n%s", errorStyle.Render(m.err.Error())))

@@ -19,7 +19,8 @@ type Indexer struct {
 	metrics      *metrics.IndexerMetrics
 	cfg          *common.Config
 
-	index *common.SafeMap[string, []common.Posting]
+	index   *common.SafeMap[string, []common.Posting]
+	elapsed time.Duration
 }
 
 func NewIndexer(log *zap.Logger, cfg *common.Config, pageStore *store.PageStore, indexerStore *store.IndexerStore) *Indexer {
@@ -63,7 +64,7 @@ func (in *Indexer) Generate() map[string][]common.Posting {
 		batchSize = 1
 	}
 
-	workerCount := 50
+	workerCount := 100
 	workerChan := make(chan []*common.Page, workerCount)
 	var workerWg sync.WaitGroup
 
@@ -92,10 +93,10 @@ func (in *Indexer) Generate() map[string][]common.Posting {
 			workerChan <- chunk
 		}
 
-		workerWg.Wait()
 		in.metrics.DocumentsRead.Add(int64(len(pages)))
 		in.metrics.BatchesRead.Add(1)
 		in.metrics.CurrentBatch.Store(in.metrics.BatchesRead.Load())
+		workerWg.Wait()
 
 		pageSearchIndex = int(pages[len(pages)-1].ID)
 	}
@@ -108,10 +109,12 @@ func (in *Indexer) Generate() map[string][]common.Posting {
 	in.shutdown(cancel)
 	storeWg.Wait()
 
-	elapsed := time.Since(start)
-
-	in.metrics.PrintSummary(elapsed)
+	in.elapsed = time.Since(start)
 	return in.index.ToMap()
+}
+
+func (in *Indexer) PrintSummary() {
+	in.metrics.PrintSummary(in.elapsed)
 }
 
 func (in *Indexer) Snapshot() progress.Snapshot {

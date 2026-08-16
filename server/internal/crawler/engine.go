@@ -36,6 +36,8 @@ type Engine struct {
 
 	crawlStartedAt  time.Time
 	lastMilestoneAt time.Time
+	elapsed         time.Duration
+	frontierSummary metrics.FrontierSummary
 }
 
 func NewEngine(log *zap.Logger, store *store.PageStore, cfg *common.Config) *Engine {
@@ -78,7 +80,8 @@ func (e *Engine) Start() {
 
 	e.workerWg.Wait()
 	stats := e.frontier.Stats(true)
-	e.metrics.PrintSummary(time.Since(startTime), metrics.FrontierSummary{
+	e.elapsed = time.Since(startTime)
+	e.frontierSummary = metrics.FrontierSummary{
 		UniqueHosts:         stats.UniqueHosts,
 		PendingURLs:         stats.PendingURLs,
 		LargestQueue:        stats.LargestQueue,
@@ -90,7 +93,11 @@ func (e *Engine) Start() {
 		LockedHosts:         stats.LockedHosts,
 		CooldownHosts:       stats.CooldownHosts,
 		AvailableHosts:      stats.AvailableHosts,
-	})
+	}
+}
+
+func (e *Engine) PrintSummary() {
+	e.metrics.PrintSummary(e.elapsed, e.frontierSummary)
 }
 
 func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {

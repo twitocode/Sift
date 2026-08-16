@@ -23,6 +23,7 @@ func Run(title string, snapshot func() Snapshot, done <-chan error) error {
 	if err != nil {
 		return runPlain(snapshot, done)
 	}
+	fmt.Fprint(os.Stdout, "\r\n")
 	return nil
 }
 

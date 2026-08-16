@@ -37,6 +37,7 @@ func main() {
 	}()
 
 	_ = progress.Run("crawl", engine.Snapshot, done)
+	engine.PrintSummary()
 
 	deduplicator := dedup.NewDeduplicator(store, log)
 	deduplicator.Start(context.Background())

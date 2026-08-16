@@ -36,4 +36,5 @@ func main() {
 	if err := progress.Run("index", in.Snapshot, done); err != nil {
 		log.Error("progress ui", zap.Error(err))
 	}
+	in.PrintSummary()
 }
