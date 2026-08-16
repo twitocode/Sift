@@ -137,13 +137,18 @@ func (in *Indexer) Snapshot() progress.Snapshot {
 func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.DocumentStats {
 	textTokens := Tokenize(page.Text)
 	titleTokens := Tokenize(page.Title)
+	domain, err := page.FinalURL.GetDomain()
+	if err != nil {
+		domain = ""
+	}
+	domainTokens := Tokenize(domain)
 
 	in.metrics.BodyTokens.Add(int64(len(textTokens)))
 	in.metrics.TitleTokens.Add(int64(len(titleTokens)))
 
 	postingMap := make(map[string]common.Posting)
 	document := &common.DocumentStats{
-		TokenCount: uint32(len(textTokens) + len(textTokens)),
+		TokenCount: uint32(len(titleTokens) + len(textTokens)),
 		PageID:     page.ID,
 	}
 
@@ -175,6 +180,20 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.Documen
 			postingMap[token] = entry
 		}
 		in.metrics.TitlePostings.Add(1)
+	}
+
+	for _, token := range domainTokens {
+		if entry, ok := postingMap[token]; !ok {
+			postingMap[token] = common.Posting{
+				Frequency:     1,
+				PageID:        uint32(page.ID),
+				MatchesDomain: true,
+			}
+			in.metrics.TotalPostings.Add(1)
+		} else {
+			entry.MatchesDomain = true
+			postingMap[token] = entry
+		}
 	}
 
 	for token, posting := range postingMap {

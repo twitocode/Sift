@@ -30,6 +30,7 @@ type Posting struct {
 
 	//ranks higher
 	MatchesTitle bool
+	MatchesDomain bool
 }
 
 type DocumentStats struct {

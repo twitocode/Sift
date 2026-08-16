@@ -81,3 +81,9 @@ The new flow looks like this: host is created and put into the global hosts map,
 This ended up shaving 2 minutes off of my old 7 minute runtime for 20k urls, but there was still another issue that was brought to light. The main cause of this massive slowdown is how dns and request timeouts are handled. After adding some metrics I noticed that my median request duration was about 750ms and my highest was 10 seconds. I then used box and whiskers data to see that my IQR was 5 seconds and my Q3 was 5 seconds. Something was clearly wrong.
 
 I ended up adding a negative cache to keep track of dns failures so that new urls with the same hosts wouldn't keep trying a lookup and failing. This dramatically changed the runtime of the crawler from 5 minutes to 2 minutes. I also noticed that at first the crawler is slow but as more urls were discovered, it sped up by a considerable amount.
+
+___
+
+For the third stage of of a search engine, I used the index that was created in the last step to have user's query queried against it. it determines search results by choosing pages with the highest BM25 (best matching 25) score based on many factors such as frequency of a token inside of a document. 
+
+I wanted to scale up my crawler to go from 20k pages to 200k pages but there were a few issues. My indexer was far too slow and was hogging up 7gb of memory. I fiddled around with padding of structs and casting values into smaller types while without destroying data. My indexer used to fetch every page in the database (slow I know) and it now first runs a query for a count of every page inside the db, then it determines a batch count (batch count = total / 10). Then it splits the batch of pages into chunks; equal to the count of parallel workers (chose 500). The workers would then work on their own chunk and once all the workers were done, the indexer would fetch the next batch of pages from the database.

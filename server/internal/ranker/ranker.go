@@ -62,11 +62,11 @@ func sortPagesByScore(pages []*common.Page, scores map[uint32]float64) {
 }
 
 func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
+	query = strings.ToLower(query)
 	tokens := indexer.Tokenize(query)
 	scores := make(map[uint32]float64)
-  
-  //TODO: need a better way to handle cases like 'gItHuB' that dont match tokens without blowing up the index
-  query = strings.ToLower(query)
+
+	//TODO: need a better way to handle cases like 'gItHuB' that dont match tokens without blowing up the index
 
 	for _, token := range tokens {
 		postings, ok := r.index[token]
@@ -86,6 +86,11 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 			if posting.MatchesTitle {
 				score += 10
 			}
+
+			if posting.MatchesDomain {
+				score += 50
+			}
+
 			scores[posting.PageID] = score
 		}
 	}
