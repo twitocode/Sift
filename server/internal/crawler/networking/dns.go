@@ -13,6 +13,7 @@ import (
 )
 
 const dnsLookupTimeout = 500 * time.Millisecond
+const maxConcurrentDNSLookups = 64
 
 type DialerContext func(ctx context.Context, network, addr string) (net.Conn, error)
 type ipLookup func(ctx context.Context, network, host string) ([]net.IP, error)
@@ -22,7 +23,8 @@ type DNSCache struct {
 	failed *common.SafeMap[string, DNSFailTracker]
 	lookup ipLookup
 
-	dnsGroup singleflight.Group
+	dnsGroup   singleflight.Group
+	lookupSlot chan struct{}
 
 	metrics *metrics.CrawlMetrics
 	log     *zap.Logger
@@ -35,11 +37,12 @@ type DNSFailTracker struct {
 
 func NewDNSCache(log *zap.Logger, metrics *metrics.CrawlMetrics) *DNSCache {
 	return &DNSCache{
-		ips:     common.NewSafeMap[string, net.IP](),
-		lookup:  systemLookup,
-		log:     log,
-		metrics: metrics,
-		failed:  common.NewSafeMap[string, DNSFailTracker](),
+		ips:        common.NewSafeMap[string, net.IP](),
+		lookup:     systemLookup,
+		log:        log,
+		metrics:    metrics,
+		failed:     common.NewSafeMap[string, DNSFailTracker](),
+		lookupSlot: make(chan struct{}, maxConcurrentDNSLookups),
 	}
 }
 
@@ -83,6 +86,13 @@ func (dc *DNSCache) resolve(ctx context.Context, host string) (net.IP, error) {
 	}
 
 	v, err, shared := dc.dnsGroup.Do(host, func() (interface{}, error) {
+		select {
+		case dc.lookupSlot <- struct{}{}:
+			defer func() { <-dc.lookupSlot }()
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+
 		lookupCtx, cancel := context.WithTimeout(ctx, dnsLookupTimeout)
 		defer cancel()
 

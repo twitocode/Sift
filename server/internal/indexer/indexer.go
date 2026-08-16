@@ -64,7 +64,7 @@ func (in *Indexer) Generate() map[string][]common.Posting {
 		batchSize = 1
 	}
 
-	workerCount := 100
+	workerCount := 500
 	workerChan := make(chan []*common.Page, workerCount)
 	var workerWg sync.WaitGroup
 
@@ -216,6 +216,9 @@ func (in *Indexer) spawnWorkers(ctx context.Context, count int, info *workerInfo
 					}
 
 					for _, page := range pages {
+						if len(page.Title) > 100 {
+							continue
+						}
 						document := in.Index(ctx, page)
 
 						info.indexStats.Lock()

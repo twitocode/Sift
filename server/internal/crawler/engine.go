@@ -173,9 +173,9 @@ func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {
 			e.pagesFetched.Add(1)
 			if page.HasBeenCrawled {
 				e.pagesCrawled.Add(1)
+        e.store.Add(ctx, *page)
 			}
-
-			e.store.Add(ctx, *page)
+      
 			e.frontier.AfterPageProcessed(ctx, page)
 
 			if e.pagesCrawled.Load() == int64(e.maxPagesCrawled) {

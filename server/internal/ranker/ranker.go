@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/indexer"
@@ -63,6 +64,9 @@ func sortPagesByScore(pages []*common.Page, scores map[uint32]float64) {
 func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 	tokens := indexer.Tokenize(query)
 	scores := make(map[uint32]float64)
+  
+  //TODO: need a better way to handle cases like 'gItHuB' that dont match tokens without blowing up the index
+  query = strings.ToLower(query)
 
 	for _, token := range tokens {
 		postings, ok := r.index[token]
@@ -98,7 +102,7 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 
 	sortPagesByScore(results, scores)
 
-	fmt.Printf("Query: %s\n", query)
+	fmt.Printf("\nQuery: %s\n", query)
 	fmt.Printf("Results:\n\n")
 	for i, page := range results {
 		if i == 10 {

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PuerkitoBio/goquery"
 	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/crawler/dedup"
 	"github.com/twitocode/sift/internal/metrics"
@@ -37,6 +36,7 @@ type ParserOutput struct {
 	inEnglish      bool
 	hasBeenCrawled bool
 	foundCanonical string
+	links          []common.URL
 }
 
 func NewHTMLParser(log *zap.Logger, metrics *metrics.CrawlMetrics) *HTMLParser {
@@ -72,17 +72,6 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job SpiderJo
 	}
 
 	p.metrics.BytesDownloaded.Add(int64(len(htmlBytes)))
-	parsedHTML, err := html.Parse(bytes.NewReader(htmlBytes))
-
-	if err != nil {
-		if ctx.Err() == nil {
-			p.metrics.ParsingFailures.Add(1)
-			p.log.Error("HTML parsing error", zap.Error(err), zap.String("url", job.url.String()))
-		}
-		return nil, err
-	}
-
-	doc := goquery.NewDocumentFromNode(parsedHTML)
 
 	var output ParserOutput
 	if res.StatusCode >= 200 && res.StatusCode <= 299 {
@@ -99,16 +88,17 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job SpiderJo
 	}
 
 	page := &common.Page{
-		FinalURL:       common.URL(res.Request.URL.String()),
-		RequestedURL:   job.url,
-		Host:           job.hostname,
-		Title:          output.title,
-		Description:    output.description,
-		CrawledAt:      time.Now(),
-		InEnglish:      output.inEnglish,
-		StatusCode:     res.StatusCode,
-		Text:           output.text,
-		Links:          p.findLinks(doc, job.url),
+		FinalURL:     common.URL(res.Request.URL.String()),
+		RequestedURL: job.url,
+		Host:         job.hostname,
+		Title:        output.title,
+		Description:  output.description,
+		CrawledAt:    time.Now(),
+		InEnglish:    output.inEnglish,
+		StatusCode:   res.StatusCode,
+		Text:         output.text,
+		// Links:          p.findLinks(doc, job.url),
+		Links:          output.links,
 		HasBeenCrawled: output.hasBeenCrawled,
 		ContentHash:    dedup.CreateSimhashFingerprint(output.text),
 		DuplicateOf:    -1,
@@ -119,39 +109,12 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job SpiderJo
 	return page, nil
 }
 
-func (p *HTMLParser) findLinks(doc *goquery.Document, pageURL common.URL) []common.URL {
-	var foundUrls []common.URL = make([]common.URL, 0)
-
-	reachedMax := false
-	doc.Find("a").Each(func(i int, s *goquery.Selection) {
-		href, exists := s.Attr("href")
-		if !exists || href == "" {
-			return
-		}
-
-		resolved, err := common.URL(href).ResolveUrl(pageURL)
-		if err != nil {
-			return
-		}
-
-		if len(foundUrls) > p.maxLinksPerPage {
-			if !reachedMax {
-				p.log.Debug("Reached Max Links", zap.String("url", pageURL.String()))
-				reachedMax = true
-			}
-			return
-		}
-		foundUrls = append(foundUrls, resolved)
-	})
-
-	slices.Sort(foundUrls)
-	foundUrls = slices.Compact(foundUrls)
-	return foundUrls
-}
-
 func (p *HTMLParser) getMeta(body []byte, url common.URL) ParserOutput {
 	tokenizer := html.NewTokenizer(bytes.NewReader(body))
 	var buffer bytes.Buffer
+	var foundUrls []common.URL = make([]common.URL, 0)
+	seenURLs := make(map[common.URL]struct{})
+
 	var out ParserOutput = ParserOutput{
 		inEnglish:      true,
 		hasBeenCrawled: false,
@@ -161,6 +124,7 @@ func (p *HTMLParser) getMeta(body []byte, url common.URL) ParserOutput {
 	skipTextContent := false
 	readingTitle := false
 	insideBody := false
+	reachedMaxLinks := false
 
 	tagsToIgnore := []string{"script", "style", "header", "footer", "nav", "svg", "aside", "noscript", "iframe", "canvas", "embed", "form", "input", "select", "option", "label"}
 
@@ -174,6 +138,7 @@ Loop:
 			{
 				if tokenizer.Err() == io.EOF {
 					out.text = buffer.String()
+					out.links = foundUrls
 					out.hasBeenCrawled = true
 					break Loop
 				}
@@ -223,6 +188,32 @@ Loop:
 						out.foundCanonical = href
 					}
 				}
+
+				if token.Data == "a" {
+					if len(foundUrls) >= p.maxLinksPerPage {
+						if !reachedMaxLinks {
+							p.log.Debug("Reached Max Links", zap.String("url", url.String()))
+							reachedMaxLinks = true
+						}
+						continue
+					}
+
+					href := getAttr(token, "href")
+
+					if href != "" {
+						resolved, err := common.URL(href).ResolveUrl(url)
+						if err != nil {
+							continue
+						}
+
+						if _, ok := seenURLs[resolved]; ok {
+							continue
+						}
+
+						foundUrls = append(foundUrls, resolved)
+						seenURLs[resolved] = struct{}{}
+					}
+				}
 			}
 		case html.EndTagToken:
 			{
@@ -262,6 +253,15 @@ Loop:
 		}
 	}
 
+	if out.title != "" && readingTitle {
+		out = ParserOutput{
+			inEnglish:      true,
+			hasBeenCrawled: false,
+			foundCanonical: "",
+			links:          foundUrls,
+		}
+
+	}
 	return out
 }
 

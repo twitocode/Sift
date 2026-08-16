@@ -35,7 +35,7 @@ INSERT INTO
     duplicate_of,
     found_canonical,
     final_url,
-    resolved_canonicalP
+    resolved_canonical
   )
 SELECT
   id,

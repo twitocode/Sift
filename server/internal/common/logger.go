@@ -13,16 +13,27 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-func NewLogger(getenv func(string) string, level zapcore.Level) *zap.Logger {
+func NewLogger(getenv func(string) string, level zapcore.Level) (*zap.Logger, zap.AtomicLevel) {
+	atomicLevel := zap.NewAtomicLevelAt(level)
+
 	if getenv("APP_ENV") == "production" {
-		return zap.Must(zap.NewProduction())
+		cfg := zap.NewProductionConfig()
+		cfg.Level = atomicLevel
+		return zap.Must(cfg.Build()), atomicLevel
 	}
+
 	core := zapcore.NewCore(
 		newDevelopmentEncoder(),
 		zapcore.Lock(os.Stderr),
-		zap.NewAtomicLevelAt(level),
+		atomicLevel,
 	)
-	return zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel), zap.Development())
+
+	return zap.New(
+		core,
+		zap.AddCaller(),
+		zap.AddStacktrace(zapcore.ErrorLevel),
+		zap.Development(),
+	), atomicLevel
 }
 
 var logBufferPool = buffer.NewPool()

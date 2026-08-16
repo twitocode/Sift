@@ -11,12 +11,13 @@ import (
 	"github.com/twitocode/sift/internal/ranker"
 	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	_ "modernc.org/sqlite"
 )
 
 func main() {
-	log := common.NewLogger(os.Getenv, zap.InfoLevel)
+	log, logLevel := common.NewLogger(os.Getenv, zap.InfoLevel)
 	cfg := common.NewConfig(os.Getenv)
 
 	sqliteDb, err := sql.Open("sqlite", common.SQLitePath())
@@ -25,6 +26,7 @@ func main() {
 		log.Fatal("Sqlite connection error", zap.Error(err))
 	}
 	log.Info("Connected to Sqlite")
+	logLevel.SetLevel(zapcore.Level(6))
 
 	pageStore := store.NewPageStore(sqliteDb, log)
 	indexerStore := store.NewIndexerStore(sqliteDb, log)
@@ -51,8 +53,14 @@ func main() {
 	ranker.LoadDocuments(ctx)
 	ranker.LoadIndexMeta(ctx)
 
-	ranker.Query(ctx, "How does Generative Artificial Intelligence work?")
-	ranker.Query(ctx, "President donald j trump ")
-	//ranker.Query(ctx, "Mental health resources for students ")
-	ranker.Query(ctx, "gItHuB access tokens")
+	queries := []string{
+		"How does Generative Artificial Intelligence work?",
+		"President donald j trump ",
+		"Mental health resources for students",
+		"gItHuB access tokens",
+	}
+
+	for _, query := range queries {
+		ranker.Query(ctx, query)
+	}
 }
