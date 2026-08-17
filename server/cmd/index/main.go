@@ -20,7 +20,7 @@ func main() {
 
 	cfg := common.NewConfig(os.Getenv)
 
-	sqliteDb, err := sql.Open("sqlite", common.SQLitePath())
+	sqliteDb, err := sql.Open("sqlite", cfg.SQLitePath())
 
 	if err != nil {
 		log.Fatal("Sqlite connection error", zap.Error(err))
@@ -32,12 +32,12 @@ func main() {
 	in := indexer.NewIndexer(log, cfg, pageStore, indexStore)
 	done := make(chan error, 1)
 	go func() {
-		in.Generate()
+		_, err := in.Get()
+		done <- err
 		close(done)
 	}()
 
 	if err := progress.Run("index", in.Snapshot, done); err != nil {
 		log.Error("progress ui", zap.Error(err))
 	}
-	in.PrintSummary()
 }

@@ -20,6 +20,7 @@ func Run(title string, snapshot func() Snapshot, done <-chan error) error {
 	}()
 
 	_, err := p.Run()
+
 	if err != nil {
 		return runPlain(snapshot, done)
 	}
@@ -28,11 +29,13 @@ func Run(title string, snapshot func() Snapshot, done <-chan error) error {
 }
 
 func programOptions() []tea.ProgramOption {
-	opts := []tea.ProgramOption{tea.WithOutput(os.Stdout)}
-	if !term.IsTerminal(os.Stdin.Fd()) {
-		opts = append(opts, tea.WithInput(nil))
+	return []tea.ProgramOption{
+		tea.WithOutput(os.Stdout),
+		tea.WithAltScreen(),
+		// This progress display does not need interactive input. Leaving input
+		// disabled prevents Bubble Tea from putting the TTY in raw mode.
+		tea.WithInput(nil),
 	}
-	return opts
 }
 
 func runPlain(snapshot func() Snapshot, done <-chan error) error {
@@ -65,9 +68,13 @@ func runPlain(snapshot func() Snapshot, done <-chan error) error {
 	printSnap(false)
 	for {
 		select {
-		case <-done:
+		case err := <-done:
 			printSnap(true)
 			fmt.Fprintln(os.Stderr)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "index failed: %v\n", err)
+				return err
+			}
 			return nil
 		case <-ticker.C:
 			printSnap(false)

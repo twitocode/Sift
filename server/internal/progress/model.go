@@ -151,7 +151,7 @@ func (m Model) View() string {
 		b.WriteString("\n\n")
 	}
 
-	b.WriteString(mutedStyle.Render("q quit"))
+	b.WriteString(mutedStyle.Render("ctrl+c quit"))
 	if m.err != nil {
 		b.WriteString(fmt.Sprintf("\n%s", errorStyle.Render(m.err.Error())))
 	}

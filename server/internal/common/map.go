@@ -17,6 +17,12 @@ func NewSafeMap[K comparable, V any]() *SafeMap[K, V] {
 	}
 }
 
+func NewPreloadedSafeMap[K comparable, V any](m map[K]V) *SafeMap[K, V] {
+	return &SafeMap[K, V]{
+		m: m,
+	}
+}
+
 func (sm *SafeMap[K, V]) Get(key K) (V, bool) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -92,11 +98,7 @@ func (sm *SafeMap[K, V]) ToMap() map[K]V {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
-	result := make(map[K]V, len(sm.m))
-	for k, v := range sm.m {
-		result[k] = v
-	}
-	return result
+	return sm.m
 }
 
 func (sm *SafeMap[K, V]) Length() int {

@@ -26,7 +26,8 @@ type Config struct {
 	MaxPendingURLs       int      `env:"MAX_PENDING_URLS"`
 	DispatchDelay        int      `env:"JOB_DISPATCH_DELAY"`
 	ShowCrawlStats       bool     `env:"SHOW_CRAWL_STATS"`
-	ShowIndexingStats       bool     `env:"SHOW_INDEXING_STATS"`
+	ShowIndexingStats    bool     `env:"SHOW_INDEXING_STATS"`
+	SQLiteDBName         string   `env:"SQLITE_DB_NAME"`
 }
 
 func loadDotEnv() {
@@ -42,16 +43,17 @@ func loadDotEnv() {
 	}
 }
 
-func SQLitePath() string {
+func (cfg Config) SQLitePath() string {
+	name := cfg.SQLiteDBName + ".db"
 	for _, path := range []string{
-		"db/sqlite/sift.db",
-		filepath.Join("..", "..", "db", "sqlite", "sift.db"),
+		"db/sqlite/" + name,
+		filepath.Join("..", "..", "db", "sqlite", name),
 	} {
 		if _, err := os.Stat(path); err == nil {
 			return path
 		}
 	}
-	return "db/sqlite/sift.db"
+	return "db/sqlite/" + name
 }
 
 func NewConfig(_ func(string) string) *Config {

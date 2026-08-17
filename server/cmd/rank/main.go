@@ -20,7 +20,7 @@ func main() {
 	log, logLevel := common.NewLogger(os.Getenv, zap.InfoLevel)
 	cfg := common.NewConfig(os.Getenv)
 
-	sqliteDb, err := sql.Open("sqlite", common.SQLitePath())
+	sqliteDb, err := sql.Open("sqlite", cfg.SQLitePath())
 
 	if err != nil {
 		log.Fatal("Sqlite connection error", zap.Error(err))
@@ -38,14 +38,16 @@ func main() {
 	result := make(chan indexResult, 1)
 	done := make(chan error, 1)
 	go func() {
-		result <- indexResult{index: in.Generate()}
+		index, err := in.Get()
+		result <- indexResult{index: index}
+		done <- err
 		close(done)
 	}()
 
 	if err := progress.Run("index", in.Snapshot, done); err != nil {
 		log.Error("progress ui", zap.Error(err))
 	}
-	in.PrintSummary()
+	//in.PrintSummary()
 
 	index := (<-result).index
 	ctx := context.Background()

@@ -2,8 +2,10 @@ package metrics
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -77,7 +79,9 @@ func (im *IndexerMetrics) PrintSummary(duration time.Duration) {
 		Headers("Data Point", "Value").
 		Rows(rows...)
 
-	lipgloss.Println(t)
+	// Use explicit CRLF endings so the table starts at column zero even if a
+	// preceding terminal UI temporarily disabled newline carriage returns.
+	fmt.Fprint(os.Stdout, strings.ReplaceAll(t.String(), "\n", "\r\n"), "\r\n")
 }
 
 func (im *IndexerMetrics) getRows(mem runtime.MemStats, duration time.Duration) [][]string {

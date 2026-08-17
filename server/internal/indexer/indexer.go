@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,7 +35,21 @@ func NewIndexer(log *zap.Logger, cfg *common.Config, pageStore *store.PageStore,
 	}
 }
 
-func (in *Indexer) Generate() map[string][]common.Posting {
+func (in *Indexer) Get() (map[string][]common.Posting, error) {
+	index := in.LoadFromDisk().ToMap()
+	if len(index) == 0 {
+		index, err := in.Generate()
+		if err != nil {
+			return nil, err
+		}
+
+		return index, nil
+	}
+
+	return index, nil
+}
+
+func (in *Indexer) Generate() (map[string][]common.Posting, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -56,7 +71,7 @@ func (in *Indexer) Generate() map[string][]common.Posting {
 		in.log.Error("Could not get page count from db", zap.Error(err))
 		in.shutdown(cancel)
 		storeWg.Wait()
-		return in.index.ToMap()
+		return in.index.ToMap(), err
 	}
 
 	batchSize := totalPageCount / 10
@@ -64,7 +79,7 @@ func (in *Indexer) Generate() map[string][]common.Posting {
 		batchSize = 1
 	}
 
-	workerCount := 500
+	workerCount := 256
 	workerChan := make(chan []*common.Page, workerCount)
 	var workerWg sync.WaitGroup
 
@@ -110,7 +125,10 @@ func (in *Indexer) Generate() map[string][]common.Posting {
 	storeWg.Wait()
 
 	in.elapsed = time.Since(start)
-	return in.index.ToMap()
+	if err := DumpIndex(&indexStats, in.index.ToMap()); err != nil {
+		return in.index.ToMap(), err
+	}
+	return in.index.ToMap(), nil
 }
 
 func (in *Indexer) PrintSummary() {
@@ -153,6 +171,9 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.Documen
 	}
 
 	for _, token := range textTokens {
+		//TODO: find a way to handle lowercase tokens
+		token = strings.ToLower(token)
+
 		if entry, ok := postingMap[token]; !ok {
 			postingMap[token] = common.Posting{
 				Frequency:    1,
@@ -167,6 +188,8 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.Documen
 	}
 
 	for _, token := range titleTokens {
+		//TODO: find a way to handle lowercase tokens
+		token = strings.ToLower(token)
 		if entry, ok := postingMap[token]; !ok {
 			postingMap[token] = common.Posting{
 				Frequency:    1,
@@ -256,6 +279,12 @@ func (in *Indexer) spawnWorkers(ctx context.Context, count int, info *workerInfo
 			}
 		}()
 	}
+}
+
+func (in *Indexer) LoadFromDisk() *common.SafeMap[string, []common.Posting] {
+	loaded := LoadIndex()
+	index := common.NewPreloadedSafeMap(loaded)
+	return index
 }
 
 func (in Indexer) shutdown(cancel context.CancelFunc) {
