@@ -1,16 +1,13 @@
 package metrics
 
 import (
-	"fmt"
 	"os"
 	"runtime"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
-	"charm.land/lipgloss/v2"
-	"charm.land/lipgloss/v2/table"
+	"github.com/pterm/pterm"
 	"go.uber.org/zap"
 )
 
@@ -52,42 +49,26 @@ func (im *IndexerMetrics) PrintSummary(duration time.Duration) {
 	runtime.ReadMemStats(&mem)
 	rows := im.getRows(mem, duration)
 
-	var (
-		purple    = lipgloss.Color("99")
-		gray      = lipgloss.Color("245")
-		lightGray = lipgloss.Color("241")
-
-		headerStyle  = lipgloss.NewStyle().Foreground(purple).Bold(true).Align(lipgloss.Center)
-		cellStyle    = lipgloss.NewStyle().Padding(0, 1)
-		oddRowStyle  = cellStyle.Foreground(gray)
-		evenRowStyle = cellStyle.Foreground(lightGray)
-	)
-
-	t := table.New().
-		Border(lipgloss.NormalBorder()).
-		BorderStyle(lipgloss.NewStyle().Foreground(purple)).
-		StyleFunc(func(row, col int) lipgloss.Style {
-			switch {
-			case row == table.HeaderRow:
-				return headerStyle
-			case row%2 == 0:
-				return evenRowStyle
-			default:
-				return oddRowStyle
-			}
-		}).
-		Headers("Data Point", "Value").
-		Rows(rows...)
-
-	// Use explicit CRLF endings so the table starts at column zero even if a
-	// preceding terminal UI temporarily disabled newline carriage returns.
-	fmt.Fprint(os.Stdout, strings.ReplaceAll(t.String(), "\n", "\r\n"), "\r\n")
+	table := pterm.DefaultTable.
+		WithHasHeader().
+		WithBoxed().
+		WithData(rows).
+		WithWriter(os.Stdout)
+	if err := table.Render(); err != nil {
+		im.log.Error("Could not render indexing summary", zap.Error(err))
+	}
 }
 
 func (im *IndexerMetrics) getRows(mem runtime.MemStats, duration time.Duration) [][]string {
 	return [][]string{
+		{"Data Point", "Value"},
+		{"Documents Total", strconv.FormatInt(im.DocumentsTotal.Load(), 10)},
 		{"Documents Read", strconv.FormatInt(im.DocumentsRead.Load(), 10)},
 		{"Documents Indexed", strconv.FormatInt(im.DocumentsIndexed.Load(), 10)},
+		{"Documents Skipped", strconv.FormatInt(im.DocumentsSkipped.Load(), 10)},
+		{"Batches Read", strconv.FormatInt(im.BatchesRead.Load(), 10)},
+		{"Current Batch", strconv.FormatInt(im.CurrentBatch.Load(), 10)},
+		{"Batch Size", strconv.FormatInt(im.BatchSize.Load(), 10)},
 		{"Body Tokens", strconv.FormatInt(im.BodyTokens.Load(), 10)},
 		{"Title Tokens", strconv.FormatInt(im.TitleTokens.Load(), 10)},
 		{"Total Tokens", strconv.FormatInt(im.TotalTokens.Load(), 10)},
@@ -97,5 +78,7 @@ func (im *IndexerMetrics) getRows(mem runtime.MemStats, duration time.Duration) 
 		{"Documents Stored", strconv.FormatInt(im.DocumentsStored.Load(), 10)},
 		{"Flushes", strconv.FormatInt(im.Flushes.Load(), 10)},
 		{"Store Errors", strconv.FormatInt(im.StoreErrors.Load(), 10)},
-		{"Time Elapsed", fmt.Sprintf("%s", duration.String())}}
+		{"Heap Alloc (MB)", strconv.FormatUint(mem.HeapAlloc/1024/1024, 10)},
+		{"Time Elapsed", duration.String()},
+	}
 }

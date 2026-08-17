@@ -43,6 +43,8 @@ func (in *Indexer) Get() (map[string][]common.Posting, error) {
 			return nil, err
 		}
 
+		in.PrintSummary()
+
 		return index, nil
 	}
 
@@ -259,6 +261,7 @@ func (in *Indexer) spawnWorkers(ctx context.Context, count int, info *workerInfo
 
 					for _, page := range pages {
 						if len(page.Title) > 100 {
+							in.metrics.DocumentsSkipped.Add(1)
 							continue
 						}
 						document := in.Index(ctx, page)

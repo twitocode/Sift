@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"sort"
 	"strconv"
@@ -9,8 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"charm.land/lipgloss/v2"
-	"charm.land/lipgloss/v2/table"
+	"github.com/pterm/pterm"
 	"go.uber.org/zap"
 )
 
@@ -152,38 +152,19 @@ func (cm *CrawlMetrics) PrintSummary(duration time.Duration, frontier FrontierSu
 	runtime.ReadMemStats(&mem)
 	rows := cm.getRows(mem, duration, frontier, cm.FetchSummary())
 
-	var (
-		purple    = lipgloss.Color("99")
-		gray      = lipgloss.Color("245")
-		lightGray = lipgloss.Color("241")
-
-		headerStyle  = lipgloss.NewStyle().Foreground(purple).Bold(true).Align(lipgloss.Center)
-		cellStyle    = lipgloss.NewStyle().Padding(0, 1)
-		oddRowStyle  = cellStyle.Foreground(gray)
-		evenRowStyle = cellStyle.Foreground(lightGray)
-	)
-
-	t := table.New().
-		Border(lipgloss.NormalBorder()).
-		BorderStyle(lipgloss.NewStyle().Foreground(purple)).
-		StyleFunc(func(row, col int) lipgloss.Style {
-			switch {
-			case row == table.HeaderRow:
-				return headerStyle
-			case row%2 == 0:
-				return evenRowStyle
-			default:
-				return oddRowStyle
-			}
-		}).
-		Headers("Data Point", "Value").
-		Rows(rows...)
-
-	lipgloss.Println(t)
+	table := pterm.DefaultTable.
+		WithHasHeader().
+		WithBoxed().
+		WithData(rows).
+		WithWriter(os.Stdout)
+	if err := table.Render(); err != nil {
+		cm.log.Error("Could not render crawling summary", zap.Error(err))
+	}
 }
 
 func (cm *CrawlMetrics) getRows(mem runtime.MemStats, duration time.Duration, frontier FrontierSummary, fetch FetchSummary) [][]string {
 	return [][]string{
+		{"Data Point", "Value"},
 		{"Unique Hosts", strconv.Itoa(frontier.UniqueHosts)},
 		{"Pending URLs", strconv.Itoa(frontier.PendingURLs)},
 		{"Largest Host Queue", strconv.Itoa(frontier.LargestQueue)},
