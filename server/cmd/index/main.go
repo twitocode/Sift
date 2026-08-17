@@ -9,12 +9,15 @@ import (
 	"github.com/twitocode/sift/internal/progress"
 	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	_ "modernc.org/sqlite"
 )
 
 func main() {
-	log := common.NewLogger(os.Getenv, zap.DebugLevel)
+	log, logLevel := common.NewLogger(os.Getenv, zap.DebugLevel)
+	logLevel.SetLevel(zapcore.Level(6))
+
 	cfg := common.NewConfig(os.Getenv)
 
 	sqliteDb, err := sql.Open("sqlite", common.SQLitePath())

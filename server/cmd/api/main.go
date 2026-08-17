@@ -24,7 +24,8 @@ func run(ctx context.Context, getenv func(string) string) error {
 	defer cancel()
 
 	cfg := common.NewConfig(getenv)
-	logger := common.NewLogger(getenv, zapcore.DebugLevel)
+	logger, _ := common.NewLogger(getenv, zapcore.DebugLevel)
+
 	defer func() { _ = logger.Sync() }()
 
 	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)

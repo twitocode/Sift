@@ -68,6 +68,8 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 
 	//TODO: need a better way to handle cases like 'gItHuB' that dont match tokens without blowing up the index
 
+	candidatesHeap := NewBestCandidateHeap(50)
+
 	for _, token := range tokens {
 		postings, ok := r.index[token]
 
@@ -95,9 +97,16 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 		}
 	}
 
+	for id, score := range scores {
+		candidatesHeap.Add(&idScore{
+			id:    int32(id),
+			score: score,
+		})
+	}
+
 	results := make([]*common.Page, 0, len(scores))
-	for id := range scores {
-		pageInfo, err := r.pageStore.GetByID(ctx, int64(id))
+	for _, v := range candidatesHeap.values {
+		pageInfo, err := r.pageStore.GetByID(ctx, int64(v.id))
 		if err != nil {
 			continue
 		}
