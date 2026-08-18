@@ -13,6 +13,11 @@ import (
 	"go.uber.org/zap"
 )
 
+type TermData struct {
+	Count      int64
+	ByteOffset int64
+}
+
 type Indexer struct {
 	log          *zap.Logger
 	pageStore    *store.PageStore
@@ -20,8 +25,9 @@ type Indexer struct {
 	metrics      *metrics.IndexerMetrics
 	cfg          *common.Config
 
-	index   *common.SafeMap[string, []common.Posting]
-	elapsed time.Duration
+	index     *common.SafeMap[string, []common.Posting]
+	termsData *common.SafeMap[string, TermData]
+	elapsed   time.Duration
 }
 
 func NewIndexer(log *zap.Logger, cfg *common.Config, pageStore *store.PageStore, indexerStore *store.IndexerStore) *Indexer {
@@ -35,20 +41,21 @@ func NewIndexer(log *zap.Logger, cfg *common.Config, pageStore *store.PageStore,
 	}
 }
 
-func (in *Indexer) Get() (map[string][]common.Posting, error) {
-	index := in.LoadFromDisk().ToMap()
-	if len(index) == 0 {
-		index, err := in.Generate()
+func (in *Indexer) Get() (map[string]TermData, error) {
+	terms := in.LoadTermsFromDisk().ToMap()
+
+	if len(terms) == 0 {
+		_, err := in.Generate()
 		if err != nil {
 			return nil, err
 		}
+		terms := in.LoadTermsFromDisk()
 
 		in.PrintSummary()
-
-		return index, nil
+		return terms.ToMap(), nil
 	}
 
-	return index, nil
+	return terms, nil
 }
 
 func (in *Indexer) Generate() (map[string][]common.Posting, error) {
@@ -288,6 +295,12 @@ func (in *Indexer) LoadFromDisk() *common.SafeMap[string, []common.Posting] {
 	loaded := LoadIndex()
 	index := common.NewPreloadedSafeMap(loaded)
 	return index
+}
+
+func (in *Indexer) LoadTermsFromDisk() *common.SafeMap[string, TermData] {
+	loaded := LoadTerms()
+	terms := common.NewPreloadedSafeMap(loaded)
+	return terms
 }
 
 func (in Indexer) shutdown(cancel context.CancelFunc) {

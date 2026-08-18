@@ -10,6 +10,7 @@ import (
 	"github.com/twitocode/sift/internal/indexer"
 	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
+	"golang.org/x/exp/mmap"
 )
 
 type Ranker struct {
@@ -19,17 +20,20 @@ type Ranker struct {
 	docs         map[uint32]uint32
 	indexerStore *store.IndexerStore
 	pageStore    *store.PageStore
-	index        map[string][]common.Posting
+	terms        map[string]indexer.TermData
 	indexMeta    *common.IndexStats
+
+	postingReader *mmap.ReaderAt
 }
 
-func NewRanker(log *zap.Logger, cfg *common.Config, index map[string][]common.Posting, indexerStore *store.IndexerStore, pageStore *store.PageStore) *Ranker {
+func NewRanker(log *zap.Logger, cfg *common.Config, terms map[string]indexer.TermData, indexerStore *store.IndexerStore, pageStore *store.PageStore) *Ranker {
 	return &Ranker{
 		log:          log,
 		cfg:          cfg,
-		index:        index,
+		terms:        terms,
 		indexerStore: indexerStore,
 		pageStore:    pageStore,
+		postingReader:       indexer.CreateMMapReader(),
 	}
 }
 
@@ -58,8 +62,8 @@ func sortPagesByScore(pages []*common.Page, scores map[uint32]float64) {
 			return 0
 		}
 	})
-
 }
+
 
 func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 	query = strings.ToLower(query)
@@ -71,11 +75,13 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 	candidatesHeap := NewBestCandidateHeap(50)
 
 	for _, token := range tokens {
-		postings, ok := r.index[token]
+		data, ok := r.terms[token]
 
 		if !ok {
 			continue
 		}
+
+		postings := indexer.LoadIndexSection(r.postingReader, data.ByteOffset, data.Count)
 
 		for _, posting := range postings {
 			score, ok := scores[posting.PageID]
@@ -127,3 +133,4 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 
 	return results
 }
+

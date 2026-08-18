@@ -11,10 +11,11 @@ import (
 	"strings"
 
 	"github.com/twitocode/sift/internal/common"
+	"golang.org/x/exp/mmap"
 )
 
 var POSTING_BYTES = int64(binary.Size(common.Posting{}))
-var indexDir = "indexdata"
+var indexDir = "index_data"
 
 func DumpIndex(stats *common.IndexStats, index map[string][]common.Posting) error {
 	info, err := os.Stat(indexDir)
@@ -78,52 +79,63 @@ func DumpIndex(stats *common.IndexStats, index map[string][]common.Posting) erro
 	return nil
 }
 
-func LoadIndex() map[string][]common.Posting {
-	out := make(map[string][]common.Posting)
+func LoadTerms() map[string]TermData {
+	out := make(map[string]TermData)
 
 	termsFile, err := os.Open(filepath.Join(indexDir, "terms.dat"))
-
 	if err != nil {
 		fmt.Printf("Terms reading could not be started  - io error %v", err)
-    return out
+		return out
 	}
-
 	defer termsFile.Close()
-	postingsFile, err := os.Open(filepath.Join(indexDir, "postings.dat"))
 
-	if err != nil {
-		fmt.Printf("Postings reading could not started - io error %v", err)
-    return out
-	}
-
-	defer postingsFile.Close()
 	termsReader := bufio.NewScanner(termsFile)
-
 	for termsReader.Scan() {
-		line := termsReader.Text()
+		data := strings.Fields(termsReader.Text())
+		if len(data) != 3 {
+			fmt.Println("Incorrect fields for postings")
+			return out
+		}
 
-    //try not to use strings.split
-		data := strings.Fields(line)
-
-    if len(data) != 3 {
-      fmt.Println("Incorrect fields for postings")
-      return out
-    }
-		term := data[0]
 		byteOffset, err := strconv.ParseInt(data[1], 10, 64)
 		if err != nil {
-      fmt.Println("Byte offset could not be parsed")
+			fmt.Println("Byte offset could not be parsed")
 			return out
 		}
 		count, err := strconv.ParseInt(data[2], 10, 64)
 		if err != nil {
-      fmt.Println("Postings count offset could not be parsed")
+			fmt.Println("Postings count offset could not be parsed")
 			return out
 		}
 
-		sectionLength := count * POSTING_BYTES
-		section := io.NewSectionReader(postingsFile, byteOffset, sectionLength)
-		postings := make([]common.Posting, count)
+		out[data[0]] = TermData{Count: count, ByteOffset: byteOffset}
+	}
+
+	if termsReader.Err() != nil {
+		fmt.Printf("Term scanning error %v", termsReader.Err())
+	}
+
+	return out
+}
+
+func LoadIndex() map[string][]common.Posting {
+	out := make(map[string][]common.Posting)
+	terms := LoadTerms()
+	if len(terms) == 0 {
+		return out
+	}
+
+	postingsFile, err := os.Open(filepath.Join(indexDir, "postings.dat"))
+	if err != nil {
+		fmt.Printf("Postings reading could not started - io error %v", err)
+		return out
+	}
+	defer postingsFile.Close()
+
+	for term, data := range terms {
+		sectionLength := data.Count * POSTING_BYTES
+		section := io.NewSectionReader(postingsFile, data.ByteOffset, sectionLength)
+		postings := make([]common.Posting, data.Count)
 
 		if err := binary.Read(section, binary.LittleEndian, postings); err != nil {
 			return out
@@ -132,10 +144,42 @@ func LoadIndex() map[string][]common.Posting {
 		out[term] = postings
 	}
 
-	if termsReader.Err() != nil {
-		fmt.Printf("Term scanning error %v", termsReader.Err())
-		return out
+	return out
+}
+
+func CreateMMapReader() *mmap.ReaderAt {
+	reader, err := mmap.Open(filepath.Join(indexDir, "postings.dat"))
+
+	if err != nil {
+		fmt.Printf("failed to open file: %v", err)
+		return nil
 	}
 
-	return out
+	return reader
+}
+
+func LoadIndexSection(reader *mmap.ReaderAt, byteOffset int64, count int64) []common.Posting {
+
+	//CANNOT DECODE INTO A 0 LENGTH SLICE MAKE SURE TO ADD count VARIABLE STUPID
+	postings := make([]common.Posting, count)
+	sectionLength := count * POSTING_BYTES
+
+	buf := make([]byte, sectionLength)
+	bytes, err := reader.ReadAt(buf, byteOffset)
+
+	if err != nil {
+		fmt.Printf("failed to read data: %v", err)
+		return postings
+	}
+
+	if int64(bytes) != sectionLength {
+		fmt.Printf("incorrect amount of bytes read: received - %d, expected %d", bytes, sectionLength)
+		return []common.Posting{}
+	}
+	if bytes, err := binary.Decode(buf, binary.LittleEndian, &postings); err != nil {
+		fmt.Printf("Postings could not be loaded, tried to load %d bytes: %v", bytes, err)
+		return postings
+	}
+
+	return postings
 }

@@ -33,13 +33,13 @@ func main() {
 
 	in := indexer.NewIndexer(log, cfg, pageStore, indexerStore)
 	type indexResult struct {
-		index map[string][]common.Posting
+		terms map[string]indexer.TermData
 	}
 	result := make(chan indexResult, 1)
 	done := make(chan error, 1)
 	go func() {
-		index, err := in.Get()
-		result <- indexResult{index: index}
+		_, err := in.Get()
+		result <- indexResult{terms: indexer.LoadTerms()}
 		done <- err
 		close(done)
 	}()
@@ -49,9 +49,9 @@ func main() {
 	}
 	//in.PrintSummary()
 
-	index := (<-result).index
+	terms := (<-result).terms
 	ctx := context.Background()
-	ranker := ranker.NewRanker(log, cfg, index, indexerStore, pageStore)
+	ranker := ranker.NewRanker(log, cfg, terms, indexerStore, pageStore)
 	ranker.LoadDocuments(ctx)
 	ranker.LoadIndexMeta(ctx)
 

@@ -41,15 +41,15 @@ func main() {
 	engine := crawler.NewEngine(log, pageStore, cfg)
 	in := indexer.NewIndexer(log, cfg, pageStore, indexerStore)
 	done := make(chan error, 1)
-	indexed := make(chan map[string][]common.Posting, 1)
+	indexed := make(chan map[string]indexer.TermData, 1)
 	go func() {
 		engine.Start()
 
 		deduplicator := dedup.NewDeduplicator(pageStore, log)
 		deduplicator.Start(context.Background())
 
-		index, err := in.Generate()
-		indexed <- index
+		terms, err := in.Get()
+		indexed <- terms
 		done <- err
 		close(done)
 	}()
