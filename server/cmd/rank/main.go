@@ -11,13 +11,12 @@ import (
 	"github.com/twitocode/sift/internal/ranker"
 	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 
 	_ "modernc.org/sqlite"
 )
 
 func main() {
-	log, logLevel := common.NewLogger(os.Getenv, zap.InfoLevel)
+	log, _ := common.NewLogger(os.Getenv, zap.InfoLevel)
 	cfg := common.NewConfig(os.Getenv)
 
 	sqliteDb, err := sql.Open("sqlite", cfg.SQLitePath())
@@ -26,7 +25,6 @@ func main() {
 		log.Fatal("Sqlite connection error", zap.Error(err))
 	}
 	log.Info("Connected to Sqlite")
-	logLevel.SetLevel(zapcore.Level(6))
 
 	pageStore := store.NewPageStore(sqliteDb, log)
 	indexerStore := store.NewIndexerStore(sqliteDb, log)
@@ -38,8 +36,8 @@ func main() {
 	result := make(chan indexResult, 1)
 	done := make(chan error, 1)
 	go func() {
-		_, err := in.Get()
-		result <- indexResult{terms: indexer.LoadTerms()}
+		terms, err := in.Get()
+		result <- indexResult{terms: terms}
 		done <- err
 		close(done)
 	}()
@@ -60,6 +58,10 @@ func main() {
 		"President donald j trump ",
 		"Mental health resources for students",
 		"gItHuB access tokens",
+		"google account",
+		"how to deal with stomach pain",
+		"acid reflux",
+		"python programming tutorial",
 	}
 
 	for _, query := range queries {

@@ -112,6 +112,22 @@ func (q *Queries) GetDocumentMeta(ctx context.Context, id int64) (Document, erro
 	return i, err
 }
 
+const getDocumentMetaByPageID = `-- name: GetDocumentMetaByPageID :one
+SELECT
+  id, token_count, page_id
+FROM
+  documents
+WHERE
+  page_id = ?
+`
+
+func (q *Queries) GetDocumentMetaByPageID(ctx context.Context, pageID int64) (Document, error) {
+	row := q.db.QueryRowContext(ctx, getDocumentMetaByPageID, pageID)
+	var i Document
+	err := row.Scan(&i.ID, &i.TokenCount, &i.PageID)
+	return i, err
+}
+
 const getLatestIndexMeta = `-- name: GetLatestIndexMeta :one
 SELECT
   document_count, total_token_count, average_doc_length

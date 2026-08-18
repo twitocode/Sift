@@ -18,6 +18,7 @@ var POSTING_BYTES = int64(binary.Size(common.Posting{}))
 var indexDir = "index_data"
 
 func DumpIndex(stats *common.IndexStats, index map[string][]common.Posting) error {
+  //TODO: atomic writing with .tmp file
 	info, err := os.Stat(indexDir)
 	switch {
 	case os.IsNotExist(err):

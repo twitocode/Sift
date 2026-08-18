@@ -213,6 +213,23 @@ func (is *IndexerStore) LoadAllDocuments(ctx context.Context) []common.DocumentS
 	return out
 }
 
+func (is *IndexerStore) GetDocumentByPageID(ctx context.Context, pageID int64) (*common.DocumentStats, error) {
+	data, err := is.queries.GetDocumentMetaByPageID(ctx, pageID)
+	if err != nil {
+		is.log.Error("Sqlite select error", zap.Error(err), zap.Int64("page_id", pageID))
+		if is.metrics != nil {
+			is.metrics.StoreErrors.Add(1)
+		}
+		return nil, err
+	}
+
+	return &common.DocumentStats{
+		TokenCount: uint32(data.TokenCount),
+		ID:         data.ID,
+		PageID:     data.PageID,
+	}, nil
+}
+
 func (is *IndexerStore) Shutdown() {
 	close(is.bufferChan)
 }

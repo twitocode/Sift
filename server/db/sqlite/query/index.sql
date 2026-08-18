@@ -38,6 +38,14 @@ FROM
 WHERE
   id = ?;
 
+-- name: GetDocumentMetaByPageID :one
+SELECT
+  *
+FROM
+  documents
+WHERE
+  page_id = ?;
+
 -- name: GetAllDocumentMeta :many
 SELECT
   *

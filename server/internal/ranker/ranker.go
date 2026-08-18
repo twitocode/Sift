@@ -28,12 +28,12 @@ type Ranker struct {
 
 func NewRanker(log *zap.Logger, cfg *common.Config, terms map[string]indexer.TermData, indexerStore *store.IndexerStore, pageStore *store.PageStore) *Ranker {
 	return &Ranker{
-		log:          log,
-		cfg:          cfg,
-		terms:        terms,
-		indexerStore: indexerStore,
-		pageStore:    pageStore,
-		postingReader:       indexer.CreateMMapReader(),
+		log:           log,
+		cfg:           cfg,
+		terms:         terms,
+		indexerStore:  indexerStore,
+		pageStore:     pageStore,
+		postingReader: indexer.CreateMMapReader(),
 	}
 }
 
@@ -44,6 +44,7 @@ func (r *Ranker) LoadDocuments(ctx context.Context) {
 	})
 
 	r.docs = docs
+  r.log.Info("Loaded all documents", zap.Int("count", len(docs)))
 }
 
 func (r *Ranker) LoadIndexMeta(ctx context.Context) {
@@ -63,7 +64,6 @@ func sortPagesByScore(pages []*common.Page, scores map[uint32]float64) {
 		}
 	})
 }
-
 
 func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 	query = strings.ToLower(query)
@@ -133,4 +133,3 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 
 	return results
 }
-
