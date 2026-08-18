@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/patrickmn/go-cache"
 	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/indexer"
 	"github.com/twitocode/sift/internal/store"
@@ -23,6 +25,7 @@ type Ranker struct {
 	terms        map[string]indexer.TermData
 	indexMeta    *common.IndexStats
 
+	pagesCache    *cache.Cache
 	postingReader *mmap.ReaderAt
 }
 
@@ -33,6 +36,7 @@ func NewRanker(log *zap.Logger, cfg *common.Config, terms map[string]indexer.Ter
 		terms:         terms,
 		indexerStore:  indexerStore,
 		pageStore:     pageStore,
+		pagesCache:    cache.New(5*time.Minute, 10*time.Minute),
 		postingReader: indexer.CreateMMapReader(),
 	}
 }
@@ -44,7 +48,7 @@ func (r *Ranker) LoadDocuments(ctx context.Context) {
 	})
 
 	r.docs = docs
-  r.log.Info("Loaded all documents", zap.Int("count", len(docs)))
+	r.log.Info("Loaded all documents", zap.Int("count", len(docs)))
 }
 
 func (r *Ranker) LoadIndexMeta(ctx context.Context) {
@@ -112,12 +116,19 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 
 	results := make([]*common.Page, 0, len(scores))
 	for _, v := range candidatesHeap.values {
-		pageInfo, err := r.pageStore.GetByID(ctx, int64(v.id))
-		if err != nil {
-			continue
-		}
+		pageInfo, ok := r.pagesCache.Get(string(v.id))
 
-		results = append(results, pageInfo)
+		if !ok {
+			pageInfo, err := r.pageStore.GetByID(ctx, int64(v.id))
+
+			if err != nil {
+				continue
+			}
+			r.pagesCache.Set(string(v.id), pageInfo, cache.DefaultExpiration)
+			results = append(results, pageInfo)
+		} else {
+			results = append(results, pageInfo.(*common.Page))
+		}
 	}
 
 	sortPagesByScore(results, scores)
