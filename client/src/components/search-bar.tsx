@@ -8,8 +8,8 @@ import { SearchIcon } from "lucide-react";
 import { useState } from "react";
 
 type SearchBarProps = {
-  initial?: string
-}
+  initial?: string;
+};
 export default function SearchBar(props: SearchBarProps) {
   const [query, setQuery] = useState(props.initial ?? "");
   const navigate = useNavigate();
@@ -22,12 +22,12 @@ export default function SearchBar(props: SearchBarProps) {
   };
 
   return (
-    <form onSubmit={handleSearch}>
-      <InputGroup className="w-200 py-6 px-2 bg-primary text-primary-foreground">
+    <form onSubmit={handleSearch} className="w-full  md:w-200">
+      <InputGroup className="w-full py-6 px-2 bg-primary text-primary-foreground">
         <InputGroupInput
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          autoFocus
+          autoFocus={props.initial == undefined}
           className="transition ease-in focus:border-none"
           placeholder="Search here "
         />

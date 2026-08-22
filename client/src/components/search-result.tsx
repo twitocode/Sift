@@ -41,7 +41,7 @@ export default function SearchResult(props: SearchResultProps) {
       onMouseLeave={() => setIsHovering(false)}
     >
       <div className="flex items-center gap-3 mb-2">
-        <div className="p-2 bg-primary size-10 rounded-xl">
+        <div className="p-2 bg-primary size-10 min-h-10 min-w-10 rounded-xl flex items-center justify-center">
           <img src={props.favicon} alt="" />
         </div>
         <p className="text-sm text-gray-700">
@@ -56,6 +56,8 @@ export default function SearchResult(props: SearchResultProps) {
         className={cn("text-blue-800 font-bold text-xl transition:underline", {
           underline: isHovering,
         })}
+        target="_blank"
+        rel="noopener noreferrer"
         href={props.url}
       >
         {props.title}

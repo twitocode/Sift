@@ -2,6 +2,7 @@ import Logo from "#/components/logo.tsx";
 import SearchBar from "#/components/search-bar.tsx";
 import SearchResult from "#/components/search-result.tsx";
 import { createFileRoute } from "@tanstack/react-router";
+import { useEffect } from "react";
 
 type QueryParams = {
   query: string;
@@ -80,12 +81,15 @@ function Home() {
   const data = Route.useLoaderData();
 
   return (
-    <>
-      <div className="flex gap-2">
+    <div className="">
+      <div className="flex gap-2 w-full mb-4">
         <Logo noText />
         <SearchBar initial={query} />
       </div>
-      <section className="mt-5">
+      <div>
+
+      </div>
+      <section className="mt-5 border-t-gray-500 border-t pt-2">
         {data.results?.map((x) => (
           <SearchResult
             desc={x.desc}
@@ -96,6 +100,6 @@ function Home() {
           />
         ))}
       </section>
-    </>
+    </div>
   );
 }
