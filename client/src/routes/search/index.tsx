@@ -1,8 +1,8 @@
 import Logo from "#/components/logo.tsx";
 import SearchBar from "#/components/search-bar.tsx";
 import SearchResult from "#/components/search-result.tsx";
+import { env } from "#/env.ts";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect } from "react";
 
 type QueryParams = {
   query: string;
@@ -31,48 +31,29 @@ type SearchResult = {
 };
 type SearchResponse = {
   results: SearchResult[];
-  meta: {};
+  meta: {
+    success: boolean;
+  };
 };
 
 async function getSearchResults(query: string): Promise<SearchResponse> {
-  const results = [
-    {
-      title: "TanStack Router — Type-safe Routing for React",
-      desc: "Fully type-safe, modern routing for React and React Native applications. Nested routes, search params, and loaders without the boilerplate.",
-      favicon: "https://www.google.com/s2/favicons?domain=tanstack.com&sz=32",
-      url: "https://tanstack.com/router/latest",
-    },
-    {
-      title: "MDN Web Docs: Fetch API",
-      desc: "The Fetch API provides a JavaScript interface for accessing and manipulating parts of the HTTP pipeline, such as requests and responses.",
-      favicon:
-        "https://www.google.com/s2/favicons?domain=developer.mozilla.org&sz=32",
-      url: "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API",
-    },
-    {
-      title: "Wikipedia — Information retrieval",
-      desc: "Information retrieval is the process of obtaining information system resources that are relevant to an information need from a collection of those resources.",
-      favicon:
-        "https://www.google.com/s2/favicons?domain=en.wikipedia.org&sz=32",
-      url: "https://en.wikipedia.org/wiki/Information_retrieval",
-    },
-    {
-      title: "GitHub: vercel/next.js",
-      desc: "The React Framework for the Web. Used by some of the world's largest companies, Next.js enables you to create full-stack web applications.",
-      favicon: "https://www.google.com/s2/favicons?domain=github.com&sz=32",
-      url: "https://github.com/vercel/next.js",
-    },
-    {
-      title: "CSS-Tricks — A Complete Guide to Flexbox",
-      desc: "Our comprehensive guide to CSS flexbox layout. This complete guide explains everything about flexbox, focusing on all the different possible properties.",
-      favicon: "https://www.google.com/s2/favicons?domain=css-tricks.com&sz=32",
-      url: "https://css-tricks.com/snippets/css/a-guide-to-flexbox/",
-    },
-  ];
+  const res = await fetch(`${env.VITE_SERVER_URL}/search/${query}`);
 
+  if (!res.ok) {
+    return {
+      results: [],
+      meta: {
+        success: false,
+      },
+    };
+  }
+
+  const data = await res.json();
   return {
-    results,
-    meta: {},
+    results: data,
+    meta: {
+      success: true,
+    },
   };
 }
 
@@ -86,9 +67,7 @@ function Home() {
         <Logo noText />
         <SearchBar initial={query} />
       </div>
-      <div>
-
-      </div>
+      <div></div>
       <section className="mt-5 border-t-gray-500 border-t pt-2">
         {data.results?.map((x) => (
           <SearchResult
