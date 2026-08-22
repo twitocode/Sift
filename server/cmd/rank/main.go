@@ -20,7 +20,6 @@ func main() {
 	cfg := common.NewConfig(os.Getenv)
 
 	sqliteDb, err := sql.Open("sqlite", cfg.SQLitePath())
-
 	if err != nil {
 		log.Fatal("Sqlite connection error", zap.Error(err))
 	}
@@ -45,7 +44,7 @@ func main() {
 	if err := progress.Run("index", in.Snapshot, done); err != nil {
 		log.Error("progress ui", zap.Error(err))
 	}
-	//in.PrintSummary()
+	// in.PrintSummary()
 
 	terms := (<-result).terms
 	ctx := context.Background()
@@ -62,6 +61,8 @@ func main() {
 		"how to deal with stomach pain",
 		"acid reflux",
 		"python programming tutorial",
+		"Space exploration at nasa",
+		"How to code for beginners",
 	}
 
 	for _, query := range queries {
