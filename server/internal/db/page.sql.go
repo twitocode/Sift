@@ -72,7 +72,7 @@ func (q *Queries) DeleteAllPages(ctx context.Context) error {
 
 const findCanonicDuplicatesPages = `-- name: FindCanonicDuplicatesPages :many
 SELECT
-  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical
+  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical, favicon, og_title
 FROM
   pages
 WHERE
@@ -110,6 +110,8 @@ func (q *Queries) FindCanonicDuplicatesPages(ctx context.Context) ([]Page, error
 			&i.FoundCanonical,
 			&i.FinalUrl,
 			&i.ResolvedCanonical,
+			&i.Favicon,
+			&i.OgTitle,
 		); err != nil {
 			return nil, err
 		}
@@ -164,7 +166,7 @@ func (q *Queries) FindPageByURL(ctx context.Context, finalUrl string) (int64, er
 
 const findPossibleDuplicatePages = `-- name: FindPossibleDuplicatePages :many
 SELECT
-  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical
+  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical, favicon, og_title
 FROM
   pages
 WHERE
@@ -203,6 +205,8 @@ func (q *Queries) FindPossibleDuplicatePages(ctx context.Context) ([]Page, error
 			&i.FoundCanonical,
 			&i.FinalUrl,
 			&i.ResolvedCanonical,
+			&i.Favicon,
+			&i.OgTitle,
 		); err != nil {
 			return nil, err
 		}
@@ -219,7 +223,7 @@ func (q *Queries) FindPossibleDuplicatePages(ctx context.Context) ([]Page, error
 
 const getAllPages = `-- name: GetAllPages :many
 SELECT
-  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical
+  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical, favicon, og_title
 FROM
   pages
 WHERE
@@ -249,6 +253,8 @@ func (q *Queries) GetAllPages(ctx context.Context) ([]Page, error) {
 			&i.FoundCanonical,
 			&i.FinalUrl,
 			&i.ResolvedCanonical,
+			&i.Favicon,
+			&i.OgTitle,
 		); err != nil {
 			return nil, err
 		}
@@ -265,7 +271,7 @@ func (q *Queries) GetAllPages(ctx context.Context) ([]Page, error) {
 
 const getPageInfoByID = `-- name: GetPageInfoByID :one
 SELECT
-  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical
+  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical, favicon, og_title
 FROM
   pages
 WHERE
@@ -289,13 +295,15 @@ func (q *Queries) GetPageInfoByID(ctx context.Context, id int64) (Page, error) {
 		&i.FoundCanonical,
 		&i.FinalUrl,
 		&i.ResolvedCanonical,
+		&i.Favicon,
+		&i.OgTitle,
 	)
 	return i, err
 }
 
 const getPageInfoByURL = `-- name: GetPageInfoByURL :one
 SELECT
-  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical
+  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical, favicon, og_title
 FROM
   pages
 WHERE
@@ -319,6 +327,8 @@ func (q *Queries) GetPageInfoByURL(ctx context.Context, finalUrl string) (Page, 
 		&i.FoundCanonical,
 		&i.FinalUrl,
 		&i.ResolvedCanonical,
+		&i.Favicon,
+		&i.OgTitle,
 	)
 	return i, err
 }
@@ -389,6 +399,8 @@ INSERT INTO pages (
   final_url,
   request_url,
   title,
+  og_title,
+  favicon,
   text,
   description,
   status_code,
@@ -398,13 +410,15 @@ INSERT INTO pages (
   found_canonical
 )
 VALUES
-  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type SetPageInfoParams struct {
 	FinalUrl       string
 	RequestUrl     string
 	Title          sql.NullString
+	OgTitle        sql.NullString
+	Favicon        sql.NullString
 	Text           sql.NullString
 	Description    sql.NullString
 	StatusCode     sql.NullInt64
@@ -419,6 +433,8 @@ func (q *Queries) SetPageInfo(ctx context.Context, arg SetPageInfoParams) error 
 		arg.FinalUrl,
 		arg.RequestUrl,
 		arg.Title,
+		arg.OgTitle,
+		arg.Favicon,
 		arg.Text,
 		arg.Description,
 		arg.StatusCode,

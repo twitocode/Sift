@@ -31,6 +31,8 @@ type HTMLParser struct {
 
 type ParserOutput struct {
 	title          string
+	ogTitle        string
+	favicon        string
 	description    string
 	text           string
 	inEnglish      bool
@@ -87,11 +89,18 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job SpiderJo
 		output.description = ""
 	}
 
+	var favicon common.URL
+	if output.favicon != "" {
+		favicon, _ = common.URL(output.favicon).ResolveUrl(common.URL(res.Request.URL.String()))
+	}
+
 	page := &common.Page{
 		FinalURL:     common.URL(res.Request.URL.String()),
 		RequestedURL: job.url,
 		Host:         job.hostname,
 		Title:        output.title,
+		OGTitle:      output.ogTitle,
+		Favicon:      favicon,
 		Description:  output.description,
 		CrawledAt:    time.Now(),
 		InEnglish:    output.inEnglish,
@@ -178,14 +187,21 @@ Loop:
 						out.description = content
 					}
 
+					if strings.EqualFold(property, "og:title") && content != "" {
+						out.ogTitle = content
+					}
 				}
 
 				if token.Data == "link" {
 					rel := getAttr(token, "rel")
 					href := getAttr(token, "href")
 
-					if (rel == "canonical") && href != "" {
+					if rel == "canonical" && href != "" {
 						out.foundCanonical = href
+					}
+
+					if out.favicon == "" && slices.Contains(strings.Fields(strings.ToLower(rel)), "icon") && href != "" {
+						out.favicon = href
 					}
 				}
 

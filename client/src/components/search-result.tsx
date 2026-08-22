@@ -1,11 +1,13 @@
 import { cn } from "#/lib/utils.ts";
 import { useState } from "react";
+import globe from "../assets/globe.png";
 
 type SearchResultProps = {
   title: string;
   url: string;
   favicon: string;
   desc: string;
+  ogTitle: string;
 };
 
 const toTitleCase = (str: string) =>
@@ -15,7 +17,7 @@ const toTitleCase = (str: string) =>
     .join(" ")
     .split("-")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ")
+    .join(" ");
 
 function getUrlWithSeperator(url: string): string[] {
   if (url[url.length - 1] == "/") {
@@ -41,16 +43,22 @@ export default function SearchResult(props: SearchResultProps) {
       onMouseLeave={() => setIsHovering(false)}
     >
       <div className="flex items-center gap-3 mb-2">
-        <div className="p-2 bg-primary size-10 min-h-10 min-w-10 rounded-xl flex items-center justify-center">
-          <img src={props.favicon} alt="" />
+        <div className="p-2 bg-[rgba(27,27,27,0.53)] size-10 min-h-10 min-w-10 rounded-xl flex items-center justify-center">
+          <img src={props.favicon || globe} alt="" />
         </div>
-        <p className="text-sm text-gray-700">
-          {getUrlWithSeperator(props.url).map((x, i) => (
-            <span className={x != ">" && i != 0 ? "text-black text-bold" : ""}>
-              {x}
-            </span>
-          ))}
-        </p>
+        <div className="flex flex-col justify-center">
+          <p>{props.ogTitle}</p>
+          <p className="text-sm text-gray-700">
+            {getUrlWithSeperator(props.url).map((x, i) => (
+              <span
+              key={i}
+                className={x != ">" && i != 0 ? "text-black text-bold" : ""}
+              >
+                {x}
+              </span>
+            ))}
+          </p>
+        </div>
       </div>
       <a
         className={cn("text-blue-800 font-bold text-xl transition:underline", {
@@ -62,7 +70,7 @@ export default function SearchResult(props: SearchResultProps) {
       >
         {props.title}
       </a>
-      <p>{props.desc}</p>
+      <p className="text-sm md:w-1/2 text-gray-700">{props.desc}</p>
     </div>
   );
 }

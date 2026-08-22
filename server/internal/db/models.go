@@ -42,4 +42,6 @@ type Page struct {
 	FoundCanonical    sql.NullString
 	FinalUrl          string
 	ResolvedCanonical sql.NullInt64
+	Favicon           sql.NullString
+	OgTitle           sql.NullString
 }

@@ -122,7 +122,6 @@ func (r *Ranker) Query(ctx context.Context, query string) []common.SearchResult 
 		if !ok {
 			pageInfo, err := r.pageStore.GetByID(ctx, int64(v.id))
 
-    
 			if err != nil {
 				continue
 			}
@@ -138,10 +137,21 @@ func (r *Ranker) Query(ctx context.Context, query string) []common.SearchResult 
 
 	searchResults := make([]common.SearchResult, len(results))
 	for i, result := range results {
+		desc := result.Description
+		if len(desc) > 300 {
+			desc = truncateString(result.Description, 40)
+			if desc[len(desc)-1] == '.' {
+				desc += ".."
+			} else {
+				desc += "..."
+			}
+		}
+
 		searchResults[i] = common.SearchResult{
 			Title:   result.Title,
-			Favicon: "",
-			Desc:    result.Description,
+			OGTitle: result.OGTitle,
+			Favicon: result.Favicon.String(),
+			Desc:    desc,
 			Url:     result.FinalURL.String(),
 		}
 	}
@@ -157,4 +167,14 @@ func logResults(query string, results []*common.Page, scores map[uint32]float64)
 		}
 		fmt.Printf("%.2f: %s\n", scores[uint32(page.ID)], page.Title)
 	}
+}
+
+func truncateString(str string, n int) string {
+	words := strings.Fields(str)
+
+	if len(words) <= n {
+		return str
+	}
+
+	return strings.Join(words[:n], " ")
 }

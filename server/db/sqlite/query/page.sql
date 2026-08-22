@@ -2,20 +2,23 @@
 DELETE FROM pages;
 
 -- name: SetPageInfo :exec
-INSERT INTO pages (
-  final_url,
-  request_url,
-  title,
-  text,
-  description,
-  status_code,
-  crawled_at,
-  has_been_crawled,
-  content_hash,
-  found_canonical
-)
+INSERT INTO
+  pages (
+    final_url,
+    request_url,
+    title,
+    og_title,
+    favicon,
+    text,
+    description,
+    status_code,
+    crawled_at,
+    has_been_crawled,
+    content_hash,
+    found_canonical
+  )
 VALUES
-  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: FindPageByURL :one
 SELECT
@@ -49,7 +52,20 @@ WHERE
 
 -- name: GetPageInfoByID :one
 SELECT
-  *
+  id,
+  request_url,
+  title,
+  description,
+  status_code,
+  crawled_at,
+  content_hash,
+  has_been_crawled,
+  duplicate_of,
+  found_canonical,
+  final_url,
+  resolved_canonical,
+  favicon,
+  og_title
 FROM
   pages
 WHERE
@@ -65,13 +81,16 @@ WHERE
 
 -- name: GetPaginatedPageBatch :many
 SELECT
-  id, title, text
+  id,
+  title,
+  text
 FROM
   pages
 WHERE
   has_been_crawled = TRUE
   AND id > ?
-LIMIT ?;
+LIMIT
+  ?;
 
 -- name: GetTotalCrawledPageCount :one
 SELECT

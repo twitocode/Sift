@@ -25,10 +25,12 @@ export const Route = createFileRoute("/search/")({
 
 type SearchResult = {
   title: string;
+  og_title: string;
   desc: string;
   favicon: string;
   url: string;
 };
+
 type SearchResponse = {
   results: SearchResult[];
   meta: {
@@ -69,13 +71,14 @@ function Home() {
       </div>
       <div></div>
       <section className="mt-5 border-t-gray-500 border-t pt-2">
-        {data.results?.map((x) => (
+        {data.results?.map((x, i) => (
           <SearchResult
             desc={x.desc}
             favicon={x.favicon}
             url={x.url}
             title={x.title}
-            key={x.url}
+            key={x.url + i}
+            ogTitle={x.og_title}
           />
         ))}
       </section>

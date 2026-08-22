@@ -11,6 +11,8 @@ type Page struct {
 	RequestedURL      URL
 	Host              URL
 	Title             string
+	OGTitle           string
+	Favicon           URL
 	Description       string
 	Text              string
 	Links             []URL
