@@ -11,14 +11,12 @@ import (
 	"github.com/twitocode/sift/internal/progress"
 	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 
 	_ "modernc.org/sqlite"
 )
 
 func main() {
-	log, logLevel := common.NewLogger(os.Getenv, zap.InfoLevel)
-	logLevel.SetLevel(zapcore.Level(6))
+	log, _ := common.NewLogger(os.Getenv, zap.InfoLevel)
 
 	cfg := common.NewConfig(os.Getenv)
 

@@ -15,4 +15,5 @@ func addRoutes(r *chi.Mux, cfg *common.Config, s *Services) {
 	})
 
 	r.Get("/health", handlers.HandleHealth())
+	r.Get("/search/{query}", handlers.HandleSearch(s.Search))
 }

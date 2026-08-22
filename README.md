@@ -87,3 +87,11 @@ ___
 For the third stage of of a search engine, I used the index that was created in the last step to have user's query queried against it. it determines search results by choosing pages with the highest BM25 (best matching 25) score based on many factors such as frequency of a token inside of a document. 
 
 I wanted to scale up my crawler to go from 20k pages to 200k pages but there were a few issues. My indexer was far too slow and was hogging up 7gb of memory. I fiddled around with padding of structs and casting values into smaller types while without destroying data. My indexer used to fetch every page in the database (slow I know) and it now first runs a query for a count of every page inside the db, then it determines a batch count (batch count = total / 10). Then it splits the batch of pages into chunks; equal to the count of parallel workers (chose 500). The workers would then work on their own chunk and once all the workers were done, the indexer would fetch the next batch of pages from the database.
+
+---
+
+To make ranking faster, I added another heap that gets added to before pages are fetched from the database. This heap keeps track of which pages have the highest bm25 scores with the root being the lowest score for fast insertions. 
+
+In my old system, the indexer would generate the index every single time which could take up to 3 minutes for 500k pages. I now reconfigured the indexer so that it now dumps the terms and postings for each term into a terms.dat and postings.dat. terms.dat consists of "TERM BYTE_OFFSET COUNT" lines. Byte offset is the amount of bytes inside the postings.dat that the file reader has to skip past to get to the postings that this term corresponds with. Count is just the number of postings the term has. But what about postings.dat? This file is written to in a binary little-endian format as there are only numbers. It is faster to read from binary then it is to read from string-numbers and converting them.  
+
+This is still one issue with the indexing IO, postings.dat for 500k pages had a file size of approx. 1gb and my system would load the entire thing at once. The upgrade I made was to introduce mmap reading to read only a section of postings.dat with high efficiency due to more optimized unix system calls. 

@@ -54,6 +54,7 @@ func (r *Ranker) LoadDocuments(ctx context.Context) {
 func (r *Ranker) LoadIndexMeta(ctx context.Context) {
 	meta := r.indexerStore.LoadLatestIndexMetadata(ctx)
 	r.indexMeta = meta
+	r.log.Info("Loaded Recent index meta")
 }
 
 func sortPagesByScore(pages []*common.Page, scores map[uint32]float64) {
@@ -69,7 +70,7 @@ func sortPagesByScore(pages []*common.Page, scores map[uint32]float64) {
 	})
 }
 
-func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
+func (r *Ranker) Query(ctx context.Context, query string) []common.SearchResult {
 	query = strings.ToLower(query)
 	tokens := indexer.Tokenize(query)
 	scores := make(map[uint32]float64)
@@ -114,13 +115,14 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 		})
 	}
 
-	results := make([]*common.Page, 0, len(scores))
+	results := make([]*common.Page, 0)
 	for _, v := range candidatesHeap.values {
 		pageInfo, ok := r.pagesCache.Get(string(v.id))
 
 		if !ok {
 			pageInfo, err := r.pageStore.GetByID(ctx, int64(v.id))
 
+    
 			if err != nil {
 				continue
 			}
@@ -132,7 +134,21 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 	}
 
 	sortPagesByScore(results, scores)
+	//logResults(query, results, scores)
 
+	searchResults := make([]common.SearchResult, len(results))
+	for i, result := range results {
+		searchResults[i] = common.SearchResult{
+			Title:   result.Title,
+			Favicon: "",
+			Desc:    result.Description,
+			Url:     result.FinalURL.String(),
+		}
+	}
+	return searchResults
+}
+
+func logResults(query string, results []*common.Page, scores map[uint32]float64) {
 	fmt.Printf("\nQuery: %s\n", query)
 	fmt.Printf("Results:\n\n")
 	for i, page := range results {
@@ -141,6 +157,4 @@ func (r *Ranker) Query(ctx context.Context, query string) []*common.Page {
 		}
 		fmt.Printf("%.2f: %s\n", scores[uint32(page.ID)], page.Title)
 	}
-
-	return results
 }

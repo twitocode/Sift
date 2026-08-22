@@ -6,5 +6,7 @@
     "Deduplicator",
     "fqdi",
     "whatlanggo"
-  ]
+  ],
+  "biome.configurationPath": "./client/biome.json",
+  "biome.lsp.bin": "./client/node_modules/@biomejs/cli-darwin-arm64/biome"
 }
