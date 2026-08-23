@@ -44,7 +44,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        <div className="px-2 md:px-40 py-20 h-screen">{children}</div>
+        <div className="md:px-40 py-5se sm:py-20 min-h-screen md:h-screen">{children}</div>
         <TanStackDevtools
           config={{
             position: "bottom-right",

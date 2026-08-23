@@ -8,7 +8,7 @@ export default function Logo({ noText }: LogoProps) {
   return (
     <Link className="gap-2 flex items-center" to="/">
       {/* TODO: put logo here */}
-      <img src={mole} className="size-15" />
+      <img src={mole} className="size-12" />
       {!noText && <p className="font-bold text-5xl">Sift</p>}
     </Link>
   );

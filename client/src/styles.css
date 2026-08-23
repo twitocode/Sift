@@ -131,3 +131,15 @@
     @apply bg-background font-sans text-foreground antialiased;
   }
 }
+
+@keyframes add-shadow {
+  to {
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  }
+}
+
+.shadow-header-scroll {
+  animation: add-shadow linear both;
+  animation-timeline: scroll();
+  animation-range: 0px 50px;
+}
