@@ -18,4 +18,5 @@ type SpiderJob struct {
 type dnsCache interface {
 	FailedUntil(host string) (time.Time, bool)
 	DialContext(ctx context.Context, network, addr string) (net.Conn, error)
+	Prefetch(ctx context.Context, host string)
 }

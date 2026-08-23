@@ -31,10 +31,17 @@ type CrawlMetrics struct {
 	BytesDownloaded atomic.Int64
 	InFlight        atomic.Int64
 
-	DNSLookupFailures atomic.Int64
-	ParsingFailures   atomic.Int64
-	HTTP400Errors     atomic.Int64
-	HTTP500Errors     atomic.Int64
+	DNSLookupFailures     atomic.Int64
+	DNSCacheHits          atomic.Int64
+	DNSLookups            atomic.Int64
+	DNSLookupTimeouts     atomic.Int64
+	DNSNXDomain           atomic.Int64
+	DNSLookupNanos        atomic.Int64
+	DNSSemaphoreWaitNanos atomic.Int64
+	DNSSemaphoreWaits     atomic.Int64
+	ParsingFailures       atomic.Int64
+	HTTP400Errors         atomic.Int64
+	HTTP500Errors         atomic.Int64
 
 	TimeElapsed        atomic.Int64
 	RequestCount       atomic.Int64
@@ -132,6 +139,13 @@ func (cm *CrawlMetrics) FetchSummary() FetchSummary {
 	return summary
 }
 
+func meanDuration(totalNanos, count int64) time.Duration {
+	if count == 0 {
+		return 0
+	}
+	return time.Duration(totalNanos / count)
+}
+
 func durationMedian(durations []time.Duration) time.Duration {
 	if len(durations) == 0 {
 		return 0
@@ -203,6 +217,12 @@ func (cm *CrawlMetrics) getRows(mem runtime.MemStats, duration time.Duration, fr
 		{"Gigabytes Downloaded", fmt.Sprintf("%.2f GB", float64(cm.BytesDownloaded.Load())*1e-9)},
 		{"Still In Flight", strconv.FormatInt(cm.InFlight.Load(), 10)},
 		{"DNS Failures", strconv.FormatInt(cm.DNSLookupFailures.Load(), 10)},
+		{"DNS Cache Hits", strconv.FormatInt(cm.DNSCacheHits.Load(), 10)},
+		{"DNS Lookups", strconv.FormatInt(cm.DNSLookups.Load(), 10)},
+		{"DNS Timeouts", strconv.FormatInt(cm.DNSLookupTimeouts.Load(), 10)},
+		{"DNS NXDOMAIN", strconv.FormatInt(cm.DNSNXDomain.Load(), 10)},
+		{"Mean DNS Lookup", meanDuration(cm.DNSLookupNanos.Load(), cm.DNSLookups.Load()).String()},
+		{"Mean DNS Semaphore Wait", meanDuration(cm.DNSSemaphoreWaitNanos.Load(), cm.DNSSemaphoreWaits.Load()).String()},
 		{"Time Elapsed", fmt.Sprintf("%s", duration.String())},
 		{"Heap Alloc (MB)", strconv.FormatUint(mem.HeapAlloc/1024/1024, 10)},
 		{"Heap In-Use (MB)", strconv.FormatUint(mem.HeapInuse/1024/1024, 10)},

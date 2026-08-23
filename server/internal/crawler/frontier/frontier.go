@@ -192,7 +192,7 @@ func (fs *FrontierStore) AddLink(ctx context.Context, host *HostState, newUrlToR
 			fs.pending.Add(1)
 
 			if host.IsAvailable() && host.IsScheduled.CompareAndSwap(false, true) {
-				fs.readyHosts.Push(host)
+				fs.scheduleReadyHost(ctx, host)
 				fs.signalScheduler()
 			}
 		} else {
@@ -294,7 +294,7 @@ func (fs *FrontierStore) FindAvailableJobs() ([]SpiderJob, error) {
 
 		if earliestUrl == "" {
 			if host.HasWorkOrDeactivate() {
-				fs.readyHosts.Push(host)
+				fs.scheduleReadyHost(context.Background(), host)
 				fs.signalScheduler()
 			}
 			continue
@@ -358,13 +358,18 @@ func (fs *FrontierStore) FreeExpiredHosts(now time.Time) {
 		if now.After(rootHost.NextEligibleAt) {
 			rootHost, _ = fs.cooldownHosts.Poll()
 			if rootHost.HasWorkOrDeactivate() {
-				fs.readyHosts.Push(rootHost)
+				fs.scheduleReadyHost(context.Background(), rootHost)
 			}
 			continue
 		}
 
 		break
 	}
+}
+
+func (fs *FrontierStore) scheduleReadyHost(ctx context.Context, host *HostState) {
+	fs.readyHosts.Push(host)
+	fs.dnsCache.Prefetch(ctx, host.Host.String())
 }
 
 func (fs *FrontierStore) GetTimerCooldown() (time.Time, bool) {

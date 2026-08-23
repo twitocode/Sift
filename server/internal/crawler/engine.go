@@ -140,7 +140,7 @@ func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {
 			}
 
 			pagesFetched := e.pagesFetched.Load()
-			if pagesFetched%250 == 0 {
+			if pagesFetched%int64(e.cfg.SpiderCount) == 0 {
 				now := time.Now()
 				stats := e.frontier.Stats(e.cfg.ShowCrawlStats)
 
@@ -173,9 +173,9 @@ func (e *Engine) loop(ctx context.Context, cancel context.CancelFunc) {
 			e.pagesFetched.Add(1)
 			if page.HasBeenCrawled {
 				e.pagesCrawled.Add(1)
-        e.store.Add(ctx, *page)
+				e.store.Add(ctx, *page)
 			}
-      
+
 			e.frontier.AfterPageProcessed(ctx, page)
 
 			if e.pagesCrawled.Load() == int64(e.maxPagesCrawled) {
@@ -270,6 +270,7 @@ func (e *Engine) startLinkWorkers(ctx context.Context, count int) {
 
 func (e *Engine) shutdown(cancel context.CancelFunc) {
 	cancel()
+	e.dnsCache.Close()
 	e.store.Shutdown()
 	e.frontier.Shutdown()
 
