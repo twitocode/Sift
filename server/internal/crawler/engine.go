@@ -210,7 +210,7 @@ func (e *Engine) dispatchAvailableJobs(ctx context.Context) {
 }
 
 func (e *Engine) Seed(ctx context.Context) {
-	for _, link := range seed {
+	for _, link := range seeds {
 		queue, err := e.frontier.AddOrRetrieveHost(ctx, link)
 
 		if err == nil {

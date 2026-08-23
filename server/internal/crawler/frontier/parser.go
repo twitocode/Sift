@@ -46,7 +46,7 @@ func NewHTMLParser(log *zap.Logger, metrics *metrics.CrawlMetrics) *HTMLParser {
 		log:             log,
 		metrics:         metrics,
 		maxHTMLSize:     10 * 1024 * 1024, // 1 MB of data,
-		maxLinksPerPage: 100,
+		maxLinksPerPage: 300,
 	}
 }
 
