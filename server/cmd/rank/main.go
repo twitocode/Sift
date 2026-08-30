@@ -30,10 +30,12 @@ func main() {
 
 	in := indexer.NewIndexer(log, cfg, pageStore, indexerStore)
 	result := make(chan map[string]indexer.TermData, 1)
+	stats := make(chan *common.IndexStats, 1)
 	done := make(chan error, 1)
 	go func() {
-		terms, _, err := in.Get()
+		terms, indexStats, err := in.Get(context.Background())
 		result <- terms
+		stats <- indexStats
 		done <- err
 		close(done)
 	}()
@@ -45,9 +47,8 @@ func main() {
 
 	terms := <-result
 	ctx := context.Background()
-	ranker := ranker.NewRanker(log, cfg, terms, indexerStore, pageStore)
+	ranker := ranker.NewRanker(log, cfg, terms, <-stats, indexerStore, pageStore)
 	ranker.LoadDocuments(ctx)
-	ranker.LoadIndexMeta(ctx)
 
 	queries := []string{
 		"How does Generative Artificial Intelligence work?",

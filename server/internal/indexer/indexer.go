@@ -42,20 +42,20 @@ func NewIndexer(log *zap.Logger, cfg *common.Config, pageStore *store.PageStore,
 	}
 }
 
-func (in *Indexer) Get() (map[string]TermData, *metrics.IndexerMetrics, error) {
+func (in *Indexer) Get(ctx context.Context) (map[string]TermData, *common.IndexStats, error) {
 	terms := in.LoadTermsFromDisk().ToMap()
 
 	if len(terms) == 0 {
 		if err := in.Generate(); err != nil {
-			return nil, in.metrics, err
+			return nil, nil, err
 		}
-		terms := in.LoadTermsFromDisk()
-
+		terms = in.LoadTermsFromDisk().ToMap()
 		in.PrintSummary()
-		return terms.ToMap(), in.metrics, nil
 	}
 
-	return terms, in.metrics, nil
+	stats := in.indexerStore.LoadLatestIndexMetadata(ctx)
+
+	return terms, stats, nil
 }
 
 func (in *Indexer) Generate() error {
@@ -74,7 +74,6 @@ func (in *Indexer) Generate() error {
 	start := time.Now()
 	indexStats := common.IndexStats{}
 
-	pageSearchIndex := 0
 	totalPageCount, err := in.pageStore.GetTotalCrawledPageCount(ctx)
 	if err != nil {
 		in.log.Error("Could not get page count from db", zap.Error(err))
@@ -83,13 +82,11 @@ func (in *Indexer) Generate() error {
 		return err
 	}
 
-	batchSize := totalPageCount / 10
-	if batchSize < 1 {
-		batchSize = 1
-	}
-
+	batchSize := max(totalPageCount/10, 1)
+	pageSearchIndex := 0
 	workerCount := 256
 	workerChan := make(chan []*common.Page, workerCount)
+
 	var workerWg sync.WaitGroup
 
 	in.metrics.DocumentsTotal.Store(totalPageCount)
@@ -127,9 +124,11 @@ func (in *Indexer) Generate() error {
 
 	close(workerChan)
 	in.elapsed = time.Since(start)
+
 	if indexStats.DocumentCount > 0 {
 		indexStats.AverageDocLength = float64(indexStats.TotalTokenCount) / float64(indexStats.DocumentCount)
 	}
+
 	indexStats.DocumentsRead = in.metrics.DocumentsRead.Load()
 	indexStats.DocumentsIndexed = in.metrics.DocumentsIndexed.Load()
 	indexStats.BodyTokens = in.metrics.BodyTokens.Load()
@@ -139,9 +138,11 @@ func (in *Indexer) Generate() error {
 	indexStats.TitlePostings = in.metrics.TitlePostings.Load()
 	indexStats.TimeElapsed = in.elapsed.Milliseconds()
 	in.metrics.TimeElapsed.Store(indexStats.TimeElapsed)
-	in.indexerStore.AddIndexMetadata(ctx, &indexStats)
+
 	in.shutdown(cancel)
 	storeWg.Wait()
+	in.indexerStore.AddIndexMetadata(ctx, &indexStats)
+
 	if err := DumpIndex(&indexStats, in.index.ToMap()); err != nil {
 		return err
 	}

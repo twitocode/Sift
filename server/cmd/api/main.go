@@ -16,6 +16,7 @@ import (
 	"github.com/twitocode/sift/internal/app"
 	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/indexer"
+	"github.com/twitocode/sift/internal/progress"
 	"github.com/twitocode/sift/internal/ranker"
 	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
@@ -41,7 +42,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 
 	defer pool.Close()
 
-	sqliteDb, err := sql.Open("sqlite", cfg.SQLitePath())
+	sqliteDb, err := sql.Open("sqlite", cfg.SQLitePath()+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		log.Fatal("Sqlite connection error", zap.Error(err))
 	}
@@ -50,17 +51,14 @@ func run(ctx context.Context, getenv func(string) string) error {
 
 	pageStore := store.NewPageStore(sqliteDb, logger)
 	indexerStore := store.NewIndexerStore(sqliteDb, logger)
-
-	in := indexer.NewIndexer(logger, cfg, pageStore, indexerStore)
-	terms, _, err := in.Get()
+	terms, indexStats, err := getIndexTerms(logger, cfg, pageStore, indexerStore)
 	if err != nil {
-		return fmt.Errorf("index: %w", err)
+		return err
 	}
 
-	ranker := ranker.NewRanker(logger, cfg, terms, indexerStore, pageStore)
+	ranker := ranker.NewRanker(logger, cfg, terms, indexStats, indexerStore, pageStore)
 
 	ranker.LoadDocuments(context.Background())
-	ranker.LoadIndexMeta(context.Background())
 
 	services := app.NewServices(cfg, pool, logger, ranker)
 	handler := app.NewServer(cfg, services, logger)
@@ -91,6 +89,27 @@ func run(ctx context.Context, getenv func(string) string) error {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+func getIndexTerms(logger *zap.Logger, cfg *common.Config, pageStore *store.PageStore, indexerStore *store.IndexerStore) (map[string]indexer.TermData, *common.IndexStats, error) {
+
+	in := indexer.NewIndexer(logger, cfg, pageStore, indexerStore)
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := in.Get(context.Background())
+		done <- err
+		close(done)
+	}()
+
+	if err := progress.Run("index", in.Snapshot, done); err != nil {
+		logger.Error("progress ui", zap.Error(err))
+	}
+
+	terms, stats, err := in.Get(context.Background())
+	if err != nil {
+		return nil, nil, fmt.Errorf("index: %w", err)
+	}
+	return terms, stats, nil
 }
 
 func setupPostgres(ctx context.Context, cfg *common.Config) (*pgxpool.Pool, error) {

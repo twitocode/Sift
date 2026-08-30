@@ -94,10 +94,18 @@ func (is *IndexerStore) RunTimer(ctx context.Context, wg *sync.WaitGroup, metric
 }
 
 func (is *IndexerStore) flush(ctx context.Context) {
+	if len(is.buffer) == 0 {
+		return
+	}
+
+	if err := is.BatchAddDocumentMetadata(ctx, is.buffer); err != nil {
+		is.metrics.StoreErrors.Add(1)
+		is.log.Error("Could not flush index metadata", zap.Error(err))
+		return
+	}
+
 	is.metrics.DocumentsStored.Add(int64(len(is.buffer)))
 	is.metrics.Flushes.Add(1)
-
-	is.BatchAddDocumentMetadata(ctx, is.buffer)
 
 	//learned what the clear function does
 	clear(is.buffer)
@@ -146,14 +154,15 @@ func (is *IndexerStore) AddIndexMetadata(ctx context.Context, data *common.Index
 	}
 }
 
-func (is *IndexerStore) BatchAddDocumentMetadata(ctx context.Context, meta []*common.DocumentStats) {
+func (is *IndexerStore) BatchAddDocumentMetadata(ctx context.Context, meta []*common.DocumentStats) error {
 	tx, err := is.sqliteDb.Begin()
-
+  defer tx.Rollback()
+  
 	if err != nil {
 		is.log.Error("Sqlite transaction error", zap.Error(err))
 		is.metrics.StoreErrors.Add(1)
 		tx.Rollback()
-		return
+		return err
 	}
 
 	qtx := is.queries.WithTx(tx)
@@ -166,7 +175,7 @@ func (is *IndexerStore) BatchAddDocumentMetadata(ctx context.Context, meta []*co
 
 		if err != nil {
 			is.log.Error("Sqlite insert in transaction error", zap.Error(err))
-			return
+			return err
 		}
 	}
 
@@ -177,8 +186,10 @@ func (is *IndexerStore) BatchAddDocumentMetadata(ctx context.Context, meta []*co
 			zap.Error(err),
 		)
 		tx.Rollback()
-		return
+		return err
 	}
+
+	return nil
 }
 
 func (is *IndexerStore) LoadLatestIndexMetadata(ctx context.Context) *common.IndexStats {
@@ -229,22 +240,22 @@ func (is *IndexerStore) LoadAllDocuments(ctx context.Context) []common.DocumentS
 	return out
 }
 
-func (is *IndexerStore) GetDocumentByPageID(ctx context.Context, pageID int64) (*common.DocumentStats, error) {
-	data, err := is.queries.GetDocumentMetaByPageID(ctx, pageID)
-	if err != nil {
-		is.log.Error("Sqlite select error", zap.Error(err), zap.Int64("page_id", pageID))
-		if is.metrics != nil {
-			is.metrics.StoreErrors.Add(1)
-		}
-		return nil, err
-	}
+// func (is *IndexerStore) GetDocumentByPageID(ctx context.Context, pageID int64) (*common.DocumentStats, error) {
+// 	data, err := is.queries.GetDocumentMetaByPageID(ctx, pageID)
+// 	if err != nil {
+// 		is.log.Error("Sqlite select error", zap.Error(err), zap.Int64("page_id", pageID))
+// 		if is.metrics != nil {
+// 			is.metrics.StoreErrors.Add(1)
+// 		}
+// 		return nil, err
+// 	}
 
-	return &common.DocumentStats{
-		TokenCount: uint32(data.TokenCount),
-		ID:         data.ID,
-		PageID:     data.PageID,
-	}, nil
-}
+// 	return &common.DocumentStats{
+// 		TokenCount: uint32(data.TokenCount),
+// 		ID:         data.ID,
+// 		PageID:     data.PageID,
+// 	}, nil
+// }
 
 func (is *IndexerStore) Shutdown() {
 	close(is.bufferChan)

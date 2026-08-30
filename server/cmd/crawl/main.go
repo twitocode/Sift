@@ -17,7 +17,6 @@ import (
 
 func main() {
 	log, _ := common.NewLogger(os.Getenv, zap.InfoLevel)
-
 	cfg := common.NewConfig(os.Getenv)
 
 	sqliteDb, err := sql.Open("sqlite", cfg.SQLitePath())

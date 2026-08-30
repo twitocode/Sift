@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"os"
 
@@ -20,7 +21,7 @@ func main() {
 
 	cfg := common.NewConfig(os.Getenv)
 
-	sqliteDb, err := sql.Open("sqlite", cfg.SQLitePath())
+	sqliteDb, err := sql.Open("sqlite", cfg.SQLitePath()+"?_pragma=busy_timeout(5000)")
 
 	if err != nil {
 		log.Fatal("Sqlite connection error", zap.Error(err))
@@ -32,7 +33,7 @@ func main() {
 	in := indexer.NewIndexer(log, cfg, pageStore, indexStore)
 	done := make(chan error, 1)
 	go func() {
-		_, _, err := in.Get()
+		_, _, err := in.Get(context.Background())
 		done <- err
 		close(done)
 	}()

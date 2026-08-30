@@ -42,14 +42,16 @@ func main() {
 	in := indexer.NewIndexer(log, cfg, pageStore, indexerStore)
 	done := make(chan error, 1)
 	indexed := make(chan map[string]indexer.TermData, 1)
+	stats := make(chan *common.IndexStats, 1)
 	go func() {
 		engine.Start()
 
 		deduplicator := dedup.NewDeduplicator(pageStore, log)
 		deduplicator.Start(context.Background())
 
-		terms, _, err := in.Get()
+		terms, indexStats, err := in.Get(context.Background())
 		indexed <- terms
+		stats <- indexStats
 		done <- err
 		close(done)
 	}()
@@ -65,9 +67,8 @@ func main() {
 	in.PrintSummary()
 
 	terms := <-indexed
-	ranker := ranker.NewRanker(log, cfg, terms, indexerStore, pageStore)
+	ranker := ranker.NewRanker(log, cfg, terms, <-stats, indexerStore, pageStore)
 	ranker.LoadDocuments(context.Background())
-	ranker.LoadIndexMeta(context.Background())
 
 	queries := []string{
 		"How does Generative Artificial Intelligence work?",

@@ -31,11 +31,12 @@ type Ranker struct {
 	postingReader *mmap.ReaderAt
 }
 
-func NewRanker(log *zap.Logger, cfg *common.Config, terms map[string]indexer.TermData, indexerStore *store.IndexerStore, pageStore *store.PageStore) *Ranker {
+func NewRanker(log *zap.Logger, cfg *common.Config, terms map[string]indexer.TermData, indexMeta *common.IndexStats, indexerStore *store.IndexerStore, pageStore *store.PageStore) *Ranker {
 	return &Ranker{
 		log:           log,
 		cfg:           cfg,
 		terms:         terms,
+		indexMeta:     indexMeta,
 		indexerStore:  indexerStore,
 		pageStore:     pageStore,
 		pagesCache:    cache.New(5*time.Minute, 10*time.Minute),
@@ -53,12 +54,6 @@ func (r *Ranker) LoadDocuments(ctx context.Context) {
 	r.log.Info("Loaded all documents", zap.Int("count", len(docs)))
 }
 
-func (r *Ranker) LoadIndexMeta(ctx context.Context) {
-	meta := r.indexerStore.LoadLatestIndexMetadata(ctx)
-	r.indexMeta = meta
-	r.log.Info("Loaded Recent index meta")
-}
-
 func sortPagesByScore(pages []*common.Page, scores map[uint32]float64) {
 	slices.SortFunc(pages, func(a *common.Page, b *common.Page) int {
 		switch {
@@ -70,6 +65,37 @@ func sortPagesByScore(pages []*common.Page, scores map[uint32]float64) {
 			return 0
 		}
 	})
+}
+
+func collectDuplicateURLs(pages []*common.Page) map[int64][]string {
+	parents := make(map[int64]int64, len(pages))
+	for _, page := range pages {
+		if page.DuplicateOf >= 0 {
+			parents[page.ID] = page.DuplicateOf
+		}
+	}
+
+	duplicates := make(map[int64][]string)
+	for _, page := range pages {
+		if page.DuplicateOf < 0 {
+			continue
+		}
+
+		canonicalID := page.DuplicateOf
+		for range len(parents) {
+			parentID, exists := parents[canonicalID]
+			if !exists {
+				break
+			}
+			canonicalID = parentID
+		}
+
+		duplicates[canonicalID] = append(
+			duplicates[canonicalID],
+			page.RequestedURL.String(),
+		)
+	}
+	return duplicates
 }
 
 func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
@@ -161,8 +187,12 @@ func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 	//logResults(query, results, scores)
 
 	searchResults := make([]common.SearchResult, 0)
-	duplicates := make(map[int64][]string)
+	duplicates := collectDuplicateURLs(results)
 	for _, result := range results {
+		if result.DuplicateOf > -1 {
+			continue
+		}
+
 		desc := result.Description
 		if len(desc) > 300 {
 			desc = common.TruncateString(result.Description, 40)
@@ -173,46 +203,23 @@ func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 			}
 		}
 
-		//is a duplicate of something
-		if result.DuplicateOf > -1 {
-			if slices.ContainsFunc(results, func(p *common.Page) bool {
-				return p.ID == result.DuplicateOf
-			}) {
-				if d, ok := duplicates[result.DuplicateOf]; !ok {
-					duplicates[result.DuplicateOf] = []string{result.FinalURL.String()}
-				} else {
-					d = append(d, result.FinalURL.String())
-					duplicates[result.DuplicateOf] = d
-				}
-			} else {
-				pageInfo, err := r.pageStore.GetByID(ctx, int64(result.DuplicateOf))
-
-				if err != nil {
-					continue
-				}
-				r.pagesCache.Set(string(rune(result.DuplicateOf)), pageInfo, cache.DefaultExpiration)
-				results = append(results, pageInfo)
-			}
-		} else {
-			d, ok := duplicates[result.ID]
-			if !ok {
-				d = []string{}
-			}
-
-			searchResults = append(searchResults, common.SearchResult{
-				Title:       result.Title,
-				OGTitle:     result.OGTitle,
-				Favicon:     result.Favicon.String(),
-				Desc:        desc,
-				Url:         result.FinalURL.String(),
-				OriginalUrl: result.RequestedURL.String(),
-				Duplicates:  d,
-				Score:       scores[uint32(result.ID)],
-				TitleTokens: len(indexer.Tokenize(result.Title)),
-				BodyTokens:  len(indexer.Tokenize(result.Text)),
-			})
+		d := duplicates[result.ID]
+		if d == nil {
+			d = []string{}
 		}
 
+		searchResults = append(searchResults, common.SearchResult{
+			Title:       result.Title,
+			OGTitle:     result.OGTitle,
+			Favicon:     result.Favicon.String(),
+			Desc:        desc,
+			Url:         result.FinalURL.String(),
+			OriginalUrl: result.RequestedURL.String(),
+			Duplicates:  d,
+			Score:       scores[uint32(result.ID)],
+			TitleTokens: len(indexer.Tokenize(result.Title)),
+			BodyTokens:  len(indexer.Tokenize(result.Text)),
+		})
 	}
 
 	out := QueryResult{
