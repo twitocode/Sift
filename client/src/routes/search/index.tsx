@@ -24,10 +24,10 @@ export const Route = createFileRoute("/search/")({
   loader: async ({ deps: { query } }) => {
     return getSearchResults(query);
   },
-  head: ({ loaderData }) => ({
+  head: ({ match }) => ({
     meta: [
       {
-        title: loaderData?.query + " - Sift",
+        title: `${match.search.query} - Sift`,
       },
     ],
   }),
@@ -125,6 +125,7 @@ function Home() {
         {data.results?.map((x, i) => (
           <SearchResult
             desc={x.desc}
+            score={x.score}
             favicon={x.favicon}
             url={x.url}
             title={x.title}

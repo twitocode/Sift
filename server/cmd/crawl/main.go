@@ -27,10 +27,11 @@ func main() {
 	}
 	log.Info("Connected to Sqlite")
 
-	store := store.NewPageStore(sqliteDb, log)
-	store.BeforeCrawl(context.Background())
+	pageStore := store.NewPageStore(sqliteDb, log)
+	indexerStore := store.NewIndexerStore(sqliteDb, log)
+	pageStore.BeforeCrawl(context.Background())
 
-	engine := crawler.NewEngine(log, store, cfg)
+	engine := crawler.NewEngine(log, pageStore, cfg)
 	done := make(chan error, 1)
 	go func() {
 		engine.Start()
@@ -40,6 +41,9 @@ func main() {
 	_ = progress.Run("crawl", engine.Snapshot, done)
 	engine.PrintSummary()
 
-	deduplicator := dedup.NewDeduplicator(store, log)
+	deduplicator := dedup.NewDeduplicator(pageStore, log)
 	deduplicator.Start(context.Background())
+
+  //TODO: remove later when using incremental indexing
+	indexerStore.BeforeIndexing(context.Background())
 }
