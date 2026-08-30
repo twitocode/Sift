@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"context"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -45,8 +46,7 @@ func (in *Indexer) Get() (map[string]TermData, *metrics.IndexerMetrics, error) {
 	terms := in.LoadTermsFromDisk().ToMap()
 
 	if len(terms) == 0 {
-		_, err := in.Generate()
-		if err != nil {
+		if err := in.Generate(); err != nil {
 			return nil, in.metrics, err
 		}
 		terms := in.LoadTermsFromDisk()
@@ -58,7 +58,7 @@ func (in *Indexer) Get() (map[string]TermData, *metrics.IndexerMetrics, error) {
 	return terms, in.metrics, nil
 }
 
-func (in *Indexer) Generate() (map[string][]common.Posting, error) {
+func (in *Indexer) Generate() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -80,7 +80,7 @@ func (in *Indexer) Generate() (map[string][]common.Posting, error) {
 		in.log.Error("Could not get page count from db", zap.Error(err))
 		in.shutdown(cancel)
 		storeWg.Wait()
-		return in.index.ToMap(), err
+		return err
 	}
 
 	batchSize := totalPageCount / 10
@@ -135,9 +135,14 @@ func (in *Indexer) Generate() (map[string][]common.Posting, error) {
 
 	in.elapsed = time.Since(start)
 	if err := DumpIndex(&indexStats, in.index.ToMap()); err != nil {
-		return in.index.ToMap(), err
+		return err
 	}
-	return in.index.ToMap(), nil
+
+	// release the in-memory postings and return the heap to the OS.
+	in.index = common.NewSafeMap[string, []common.Posting]()
+	debug.FreeOSMemory()
+
+	return nil
 }
 
 func (in *Indexer) PrintSummary() {
@@ -202,7 +207,7 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.Documen
 
 		if entry, ok := postingMap[token]; !ok {
 			postingMap[token] = common.Posting{
-        BodyFrequency:   0,
+				BodyFrequency:   0,
 				TitleFrequency:  1,
 				DomainFrequency: 0,
 				PageID:          uint32(page.ID),

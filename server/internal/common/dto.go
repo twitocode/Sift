@@ -7,4 +7,7 @@ type SearchResult struct {
 	Favicon string  `json:"favicon"`
 	Url     string  `json:"url"`
 	Score   float64 `json:"score"`
+
+	BodyTokens  int `json:"body_tokens"`
+	TitleTokens int `json:"title_tokens"`
 }

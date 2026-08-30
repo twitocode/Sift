@@ -87,8 +87,8 @@ func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 	tokenStats := make(map[string]TokenStats)
 
 	var averagePostingScanDuration float64
-
 	pagesQueried := make(map[uint32]struct{})
+
 	for i, token := range tokens {
 		data, ok := r.terms[token]
 
@@ -182,6 +182,8 @@ func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 			Desc:    desc,
 			Url:     result.FinalURL.String(),
 			Score:   scores[uint32(result.ID)],
+      TitleTokens: len(indexer.Tokenize(result.Title)),
+      BodyTokens: len(indexer.Tokenize(result.Text)),
 		}
 	}
 
