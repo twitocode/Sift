@@ -21,6 +21,14 @@ type IndexMetadatum struct {
 	TotalTokenCount  int64
 	AverageDocLength int64
 	CreatedAt        time.Time
+	DocumentsRead    int64
+	DocumentsIndexed int64
+	BodyTokens       int64
+	TitleTokens      int64
+	UniqueTerms      int64
+	TotalPostings    int64
+	TitlePostings    int64
+	TimeElapsed      int64
 }
 
 type Link struct {

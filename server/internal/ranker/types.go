@@ -2,7 +2,6 @@ package ranker
 
 import (
 	"github.com/twitocode/sift/internal/common"
-	"github.com/twitocode/sift/internal/metrics"
 )
 
 type TokenStats struct {
@@ -40,19 +39,18 @@ type SimpleIndexerMetrics struct {
 	TimeElapsed int64 `json:"time_elapsed"`
 }
 
-func ToSimpleIndexerMetrics(metrics *metrics.IndexerMetrics) SimpleIndexerMetrics {
+func ToSimpleIndexerMetrics(stats *common.IndexStats) SimpleIndexerMetrics {
+	if stats == nil {
+		return SimpleIndexerMetrics{}
+	}
 	return SimpleIndexerMetrics{
-		DocumentsRead:    metrics.DocumentsRead.Load(),
-		DocumentsIndexed: metrics.DocumentsIndexed.Load(),
-
-		BodyTokens:  metrics.BodyTokens.Load(),
-		TitleTokens: metrics.TitleTokens.Load(),
-
-		UniqueTerms: metrics.UniqueTerms.Load(),
-
-		TotalPostings: metrics.TotalPostings.Load(),
-		TitlePostings: metrics.TitlePostings.Load(),
-
-		TimeElapsed: metrics.TimeElapsed.Load(),
+		DocumentsRead:    stats.DocumentsRead,
+		DocumentsIndexed: stats.DocumentsIndexed,
+		BodyTokens:       stats.BodyTokens,
+		TitleTokens:      stats.TitleTokens,
+		UniqueTerms:      stats.UniqueTerms,
+		TotalPostings:    stats.TotalPostings,
+		TitlePostings:    stats.TitlePostings,
+		TimeElapsed:      stats.TimeElapsed,
 	}
 }

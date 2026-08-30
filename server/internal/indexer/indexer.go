@@ -126,14 +126,22 @@ func (in *Indexer) Generate() error {
 	}
 
 	close(workerChan)
+	in.elapsed = time.Since(start)
 	if indexStats.DocumentCount > 0 {
 		indexStats.AverageDocLength = float64(indexStats.TotalTokenCount) / float64(indexStats.DocumentCount)
 	}
+	indexStats.DocumentsRead = in.metrics.DocumentsRead.Load()
+	indexStats.DocumentsIndexed = in.metrics.DocumentsIndexed.Load()
+	indexStats.BodyTokens = in.metrics.BodyTokens.Load()
+	indexStats.TitleTokens = in.metrics.TitleTokens.Load()
+	indexStats.UniqueTerms = in.metrics.UniqueTerms.Load()
+	indexStats.TotalPostings = in.metrics.TotalPostings.Load()
+	indexStats.TitlePostings = in.metrics.TitlePostings.Load()
+	indexStats.TimeElapsed = in.elapsed.Milliseconds()
+	in.metrics.TimeElapsed.Store(indexStats.TimeElapsed)
 	in.indexerStore.AddIndexMetadata(ctx, &indexStats)
 	in.shutdown(cancel)
 	storeWg.Wait()
-
-	in.elapsed = time.Since(start)
 	if err := DumpIndex(&indexStats, in.index.ToMap()); err != nil {
 		return err
 	}

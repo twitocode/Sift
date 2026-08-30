@@ -10,7 +10,6 @@ import (
 	"github.com/patrickmn/go-cache"
 	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/indexer"
-	"github.com/twitocode/sift/internal/metrics"
 	"github.com/twitocode/sift/internal/store"
 	"go.uber.org/zap"
 	"golang.org/x/exp/mmap"
@@ -26,14 +25,13 @@ type Ranker struct {
 	indexerStore *store.IndexerStore
 	pageStore    *store.PageStore
 
-	indexMeta    *common.IndexStats
-	indexMetrics *metrics.IndexerMetrics
+	indexMeta *common.IndexStats
 
 	pagesCache    *cache.Cache
 	postingReader *mmap.ReaderAt
 }
 
-func NewRanker(log *zap.Logger, cfg *common.Config, terms map[string]indexer.TermData, indexerStore *store.IndexerStore, pageStore *store.PageStore, indexMetrics *metrics.IndexerMetrics) *Ranker {
+func NewRanker(log *zap.Logger, cfg *common.Config, terms map[string]indexer.TermData, indexerStore *store.IndexerStore, pageStore *store.PageStore) *Ranker {
 	return &Ranker{
 		log:           log,
 		cfg:           cfg,
@@ -42,7 +40,6 @@ func NewRanker(log *zap.Logger, cfg *common.Config, terms map[string]indexer.Ter
 		pageStore:     pageStore,
 		pagesCache:    cache.New(5*time.Minute, 10*time.Minute),
 		postingReader: indexer.CreateMMapReader(),
-		indexMetrics:  indexMetrics,
 	}
 }
 
@@ -163,8 +160,9 @@ func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 	sortPagesByScore(results, scores)
 	//logResults(query, results, scores)
 
-	searchResults := make([]common.SearchResult, len(results))
-	for i, result := range results {
+	searchResults := make([]common.SearchResult, 0)
+	duplicates := make(map[int64][]string)
+	for _, result := range results {
 		desc := result.Description
 		if len(desc) > 300 {
 			desc = common.TruncateString(result.Description, 40)
@@ -175,16 +173,46 @@ func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 			}
 		}
 
-		searchResults[i] = common.SearchResult{
-			Title:   result.Title,
-			OGTitle: result.OGTitle,
-			Favicon: result.Favicon.String(),
-			Desc:    desc,
-			Url:     result.FinalURL.String(),
-			Score:   scores[uint32(result.ID)],
-      TitleTokens: len(indexer.Tokenize(result.Title)),
-      BodyTokens: len(indexer.Tokenize(result.Text)),
+		//is a duplicate of something
+		if result.DuplicateOf > -1 {
+			if slices.ContainsFunc(results, func(p *common.Page) bool {
+				return p.ID == result.DuplicateOf
+			}) {
+				if d, ok := duplicates[result.DuplicateOf]; !ok {
+					duplicates[result.DuplicateOf] = []string{result.FinalURL.String()}
+				} else {
+					d = append(d, result.FinalURL.String())
+					duplicates[result.DuplicateOf] = d
+				}
+			} else {
+				pageInfo, err := r.pageStore.GetByID(ctx, int64(result.DuplicateOf))
+
+				if err != nil {
+					continue
+				}
+				r.pagesCache.Set(string(rune(result.DuplicateOf)), pageInfo, cache.DefaultExpiration)
+				results = append(results, pageInfo)
+			}
+		} else {
+			d, ok := duplicates[result.ID]
+			if !ok {
+				d = []string{}
+			}
+
+			searchResults = append(searchResults, common.SearchResult{
+				Title:       result.Title,
+				OGTitle:     result.OGTitle,
+				Favicon:     result.Favicon.String(),
+				Desc:        desc,
+				Url:         result.FinalURL.String(),
+				OriginalUrl: result.RequestedURL.String(),
+				Duplicates:  d,
+				Score:       scores[uint32(result.ID)],
+				TitleTokens: len(indexer.Tokenize(result.Title)),
+				BodyTokens:  len(indexer.Tokenize(result.Text)),
+			})
 		}
+
 	}
 
 	out := QueryResult{
@@ -194,7 +222,7 @@ func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 		TokenStats:                  tokenStats,
 		AveragePostingsScanDuration: averagePostingScanDuration,
 		PossibleResultsQueried:      len(pagesQueried),
-		IndexerMetrics:              ToSimpleIndexerMetrics(r.indexMetrics),
+		IndexerMetrics:              ToSimpleIndexerMetrics(r.indexMeta),
 	}
 
 	return out

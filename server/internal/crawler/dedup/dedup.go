@@ -98,7 +98,7 @@ func (d *Deduplicator) HandleRandomDuplicates(ctx context.Context) {
 
 	clusters := make(map[int][]int)
 
-	for i, _ := range pages {
+	for i := range pages {
 		root := set.Find(i)
 		clusters[root] = append(clusters[root], i)
 	}

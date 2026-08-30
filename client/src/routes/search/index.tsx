@@ -1,9 +1,9 @@
 import Logo from "#/components/logo.tsx";
-import SearchBar from "#/components/search-bar.tsx";
 import SearchMetrics, {
   type IndexMetrics,
   type TokenStats,
 } from "#/components/metrics/search-metrics.tsx";
+import SearchBar from "#/components/search-bar.tsx";
 import SearchResult from "#/components/search-result.tsx";
 import { env } from "#/env.ts";
 import { cn } from "#/lib/utils.ts";
@@ -44,6 +44,7 @@ type SearchResultItem = {
   desc: string;
   favicon: string;
   url: string;
+  original_url: string;
   score: number;
   title_tokens: number;
   body_tokens: number;
@@ -107,7 +108,7 @@ function Home() {
   }, []);
 
   return (
-    <main className="max-w-[1500px]">
+    <main className="max-w-375">
       <div
         className={cn(
           "flex gap-8 w-full mb-4 bg-background p-2 sticky md:static top-0 z-50 ease-in duration-75 transition-shadow",

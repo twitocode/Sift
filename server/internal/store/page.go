@@ -218,18 +218,26 @@ func (ps *PageStore) GetByID(ctx context.Context, id int64) (*common.Page, error
 	}
 
 	pageInfo := &common.Page{
-		ID:                page.ID,
-		ContentHash:       uint64(page.ContentHash.Int64),
-		Title:             page.Title.String,
-		OGTitle:           page.OgTitle.String,
-		Favicon:           common.URL(page.Favicon.String),
-		Description:       page.Description.String,
-		FinalURL:          common.URL(page.FinalUrl),
-		CrawledAt:         page.CrawledAt.Time,
-		StatusCode:        int(page.StatusCode.Int64),
+		ID:          page.ID,
+		ContentHash: uint64(page.ContentHash.Int64),
+		Title:       page.Title.String,
+		OGTitle:     page.OgTitle.String,
+		Favicon:     common.URL(page.Favicon.String),
+		Description: page.Description.String,
+		FinalURL:    common.URL(page.FinalUrl),
+    RequestedURL: common.URL(page.RequestUrl),
+		CrawledAt:   page.CrawledAt.Time,
+		StatusCode:  int(page.StatusCode.Int64),
+
 		HasBeenCrawled:    page.HasBeenCrawled.Int64 == 1,
 		FoundCanonical:    common.URL(page.FoundCanonical.String),
 		ResolvedCanonical: page.ResolvedCanonical.Int64 == 1,
+	}
+
+	if page.DuplicateOf.Valid {
+		pageInfo.DuplicateOf = page.DuplicateOf.Int64
+	} else {
+		pageInfo.DuplicateOf = -1
 	}
 
 	host, _ := common.URL(page.FinalUrl).GetHost()

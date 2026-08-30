@@ -130,6 +130,14 @@ func (is *IndexerStore) AddIndexMetadata(ctx context.Context, data *common.Index
 		DocumentCount:    int64(data.DocumentCount),
 		TotalTokenCount:  int64(data.TotalTokenCount),
 		AverageDocLength: int64(data.AverageDocLength),
+		DocumentsRead:    data.DocumentsRead,
+		DocumentsIndexed: data.DocumentsIndexed,
+		BodyTokens:       data.BodyTokens,
+		TitleTokens:      data.TitleTokens,
+		UniqueTerms:      data.UniqueTerms,
+		TotalPostings:    data.TotalPostings,
+		TitlePostings:    data.TitlePostings,
+		TimeElapsed:      data.TimeElapsed,
 	})
 
 	if err != nil {
@@ -186,6 +194,14 @@ func (is *IndexerStore) LoadLatestIndexMetadata(ctx context.Context) *common.Ind
 		DocumentCount:    uint64(data.DocumentCount),
 		TotalTokenCount:  uint64(data.TotalTokenCount),
 		AverageDocLength: float64(data.AverageDocLength),
+		DocumentsRead:    data.DocumentsRead,
+		DocumentsIndexed: data.DocumentsIndexed,
+		BodyTokens:       data.BodyTokens,
+		TitleTokens:      data.TitleTokens,
+		UniqueTerms:      data.UniqueTerms,
+		TotalPostings:    data.TotalPostings,
+		TitlePostings:    data.TitlePostings,
+		TimeElapsed:      data.TimeElapsed,
 	}
 }
 
