@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 
-	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/ranker"
 )
 
@@ -17,6 +16,6 @@ func NewSearchService(ranker *ranker.Ranker) *SearchService {
 	}
 }
 
-func (ss *SearchService) Search(ctx context.Context, q string) []common.SearchResult {
+func (ss *SearchService) Search(ctx context.Context, q string) ranker.QueryResult {
 	return ss.ranker.Query(ctx, q)
 }

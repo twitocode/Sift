@@ -39,14 +39,33 @@ type SearchResult = {
   desc: string;
   favicon: string;
   url: string;
+  score: number;
+};
+
+type TokenStats = {
+  postings_count: number;
+  scan_time: number;
+};
+
+type IndexMetrics = {
+  docs_read: number;
+  docs_indexed: number;
+  body_tokens: number;
+  title_tokens: number;
+  unique_terms: number;
+  total_postings: number;
+  title_postings: number;
+  time_elapsed: number;
 };
 
 type SearchResponse = {
   results: SearchResult[];
-  query: string;
-  meta: {
-    success: boolean;
-  };
+  count: number;
+  time_elapsed: number;
+  average_postings_scan_duration: number;
+  token_stats: Record<string, TokenStats>;
+  possible_results: number;
+  index_metrics: IndexMetrics;
 };
 
 async function getSearchResults(query: string): Promise<SearchResponse> {
@@ -55,21 +74,25 @@ async function getSearchResults(query: string): Promise<SearchResponse> {
   if (!res.ok) {
     return {
       results: [],
-      query,
-      meta: {
-        success: false,
+      count: 0,
+      time_elapsed: 0,
+      average_postings_scan_duration: 0,
+      token_stats: {},
+      possible_results: 0,
+      index_metrics: {
+        docs_read: 0,
+        docs_indexed: 0,
+        body_tokens: 0,
+        title_tokens: 0,
+        unique_terms: 0,
+        total_postings: 0,
+        title_postings: 0,
+        time_elapsed: 0,
       },
     };
   }
 
-  const data = await res.json();
-  return {
-    results: data,
-    query,
-    meta: {
-      success: true,
-    },
-  };
+  return res.json() as Promise<SearchResponse>;
 }
 
 function Home() {

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,7 +17,7 @@ var POSTING_BYTES = int64(binary.Size(common.Posting{}))
 var indexDir = "index_data"
 
 func DumpIndex(stats *common.IndexStats, index map[string][]common.Posting) error {
-  //TODO: atomic writing with .tmp file
+	//TODO: atomic writing with .tmp file
 	info, err := os.Stat(indexDir)
 	switch {
 	case os.IsNotExist(err):
@@ -119,34 +118,34 @@ func LoadTerms() map[string]TermData {
 	return out
 }
 
-func LoadIndex() map[string][]common.Posting {
-	out := make(map[string][]common.Posting)
-	terms := LoadTerms()
-	if len(terms) == 0 {
-		return out
-	}
+// func LoadIndex() map[string][]common.Posting {
+// 	out := make(map[string][]common.Posting)
+// 	terms := LoadTerms()
+// 	if len(terms) == 0 {
+// 		return out
+// 	}
 
-	postingsFile, err := os.Open(filepath.Join(indexDir, "postings.dat"))
-	if err != nil {
-		fmt.Printf("Postings reading could not started - io error %v", err)
-		return out
-	}
-	defer postingsFile.Close()
+// 	postingsFile, err := os.Open(filepath.Join(indexDir, "postings.dat"))
+// 	if err != nil {
+// 		fmt.Printf("Postings reading could not started - io error %v", err)
+// 		return out
+// 	}
+// 	defer postingsFile.Close()
 
-	for term, data := range terms {
-		sectionLength := data.Count * POSTING_BYTES
-		section := io.NewSectionReader(postingsFile, data.ByteOffset, sectionLength)
-		postings := make([]common.Posting, data.Count)
+// 	for term, data := range terms {
+// 		sectionLength := data.Count * POSTING_BYTES
+// 		section := io.NewSectionReader(postingsFile, data.ByteOffset, sectionLength)
+// 		postings := make([]common.Posting, data.Count)
 
-		if err := binary.Read(section, binary.LittleEndian, postings); err != nil {
-			return out
-		}
+// 		if err := binary.Read(section, binary.LittleEndian, postings); err != nil {
+// 			return out
+// 		}
 
-		out[term] = postings
-	}
+// 		out[term] = postings
+// 	}
 
-	return out
-}
+// 	return out
+// }
 
 func CreateMMapReader() *mmap.ReaderAt {
 	reader, err := mmap.Open(filepath.Join(indexDir, "postings.dat"))

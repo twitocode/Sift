@@ -52,12 +52,12 @@ func run(ctx context.Context, getenv func(string) string) error {
 	indexerStore := store.NewIndexerStore(sqliteDb, logger)
 
 	in := indexer.NewIndexer(logger, cfg, pageStore, indexerStore)
-	terms, err := in.Get()
+	terms, indexMetrics, err := in.Get()
 	if err != nil {
 		return fmt.Errorf("index: %w", err)
 	}
 
-	ranker := ranker.NewRanker(logger, cfg, terms, indexerStore, pageStore)
+	ranker := ranker.NewRanker(logger, cfg, terms, indexerStore, pageStore, indexMetrics)
 
 	ranker.LoadDocuments(context.Background())
 	ranker.LoadIndexMeta(context.Background())

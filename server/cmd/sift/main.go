@@ -9,6 +9,7 @@ import (
 	"github.com/twitocode/sift/internal/crawler"
 	"github.com/twitocode/sift/internal/crawler/dedup"
 	"github.com/twitocode/sift/internal/indexer"
+	"github.com/twitocode/sift/internal/metrics"
 	"github.com/twitocode/sift/internal/progress"
 	"github.com/twitocode/sift/internal/ranker"
 	"github.com/twitocode/sift/internal/store"
@@ -41,15 +42,19 @@ func main() {
 	engine := crawler.NewEngine(log, pageStore, cfg)
 	in := indexer.NewIndexer(log, cfg, pageStore, indexerStore)
 	done := make(chan error, 1)
-	indexed := make(chan map[string]indexer.TermData, 1)
+	type indexResult struct {
+		terms   map[string]indexer.TermData
+		metrics *metrics.IndexerMetrics
+	}
+	indexed := make(chan indexResult, 1)
 	go func() {
 		engine.Start()
 
 		deduplicator := dedup.NewDeduplicator(pageStore, log)
 		deduplicator.Start(context.Background())
 
-		terms, err := in.Get()
-		indexed <- terms
+		terms, indexMetrics, err := in.Get()
+		indexed <- indexResult{terms: terms, metrics: indexMetrics}
 		done <- err
 		close(done)
 	}()
@@ -64,7 +69,8 @@ func main() {
 	engine.PrintSummary()
 	in.PrintSummary()
 
-	ranker := ranker.NewRanker(log, cfg, <-indexed, indexerStore, pageStore)
+	indexedResult := <-indexed
+	ranker := ranker.NewRanker(log, cfg, indexedResult.terms, indexerStore, pageStore, indexedResult.metrics)
 	ranker.LoadDocuments(context.Background())
 	ranker.LoadIndexMeta(context.Background())
 

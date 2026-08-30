@@ -32,7 +32,7 @@ func main() {
 	in := indexer.NewIndexer(log, cfg, pageStore, indexStore)
 	done := make(chan error, 1)
 	go func() {
-		_, err := in.Get()
+		_, _, err := in.Get()
 		done <- err
 		close(done)
 	}()

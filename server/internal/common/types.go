@@ -28,11 +28,11 @@ type Page struct {
 
 type Posting struct {
 	PageID    uint32
-	Frequency uint32
+	BodyFrequency uint32
 
 	//ranks higher
-	MatchesTitle bool
-	MatchesDomain bool
+	TitleFrequency uint32
+	DomainFrequency uint32
 }
 
 type DocumentStats struct {

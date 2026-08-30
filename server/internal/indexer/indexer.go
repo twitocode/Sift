@@ -41,21 +41,21 @@ func NewIndexer(log *zap.Logger, cfg *common.Config, pageStore *store.PageStore,
 	}
 }
 
-func (in *Indexer) Get() (map[string]TermData, error) {
+func (in *Indexer) Get() (map[string]TermData, *metrics.IndexerMetrics, error) {
 	terms := in.LoadTermsFromDisk().ToMap()
 
 	if len(terms) == 0 {
 		_, err := in.Generate()
 		if err != nil {
-			return nil, err
+			return nil, in.metrics, err
 		}
 		terms := in.LoadTermsFromDisk()
 
 		in.PrintSummary()
-		return terms.ToMap(), nil
+		return terms.ToMap(), in.metrics, nil
 	}
 
-	return terms, nil
+	return terms, in.metrics, nil
 }
 
 func (in *Indexer) Generate() (map[string][]common.Posting, error) {
@@ -185,13 +185,13 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.Documen
 
 		if entry, ok := postingMap[token]; !ok {
 			postingMap[token] = common.Posting{
-				Frequency:    1,
-				PageID:       uint32(page.ID),
-				MatchesTitle: false,
+				BodyFrequency:   1,
+				TitleFrequency:  0,
+				DomainFrequency: 0, PageID: uint32(page.ID),
 			}
 			in.metrics.TotalPostings.Add(1)
 		} else {
-			entry.Frequency += 1
+			entry.BodyFrequency += 1
 			postingMap[token] = entry
 		}
 	}
@@ -199,16 +199,17 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.Documen
 	for _, token := range titleTokens {
 		//TODO: find a way to handle lowercase tokens
 		token = strings.ToLower(token)
+
 		if entry, ok := postingMap[token]; !ok {
 			postingMap[token] = common.Posting{
-				Frequency:    1,
-				PageID:       uint32(page.ID),
-				MatchesTitle: true,
+        BodyFrequency:   0,
+				TitleFrequency:  1,
+				DomainFrequency: 0,
+				PageID:          uint32(page.ID),
 			}
 			in.metrics.TotalPostings.Add(1)
 		} else {
-			entry.Frequency += 1
-			entry.MatchesTitle = true
+			entry.TitleFrequency += 1
 			postingMap[token] = entry
 		}
 		in.metrics.TitlePostings.Add(1)
@@ -217,13 +218,14 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.Documen
 	for _, token := range domainTokens {
 		if entry, ok := postingMap[token]; !ok {
 			postingMap[token] = common.Posting{
-				Frequency:     1,
-				PageID:        uint32(page.ID),
-				MatchesDomain: true,
+				TitleFrequency:  0,
+				BodyFrequency:   0,
+				DomainFrequency: 1,
+				PageID:          uint32(page.ID),
 			}
 			in.metrics.TotalPostings.Add(1)
 		} else {
-			entry.MatchesDomain = true
+			entry.DomainFrequency += 1
 			postingMap[token] = entry
 		}
 	}
@@ -291,11 +293,11 @@ func (in *Indexer) spawnWorkers(ctx context.Context, count int, info *workerInfo
 	}
 }
 
-func (in *Indexer) LoadFromDisk() *common.SafeMap[string, []common.Posting] {
-	loaded := LoadIndex()
-	index := common.NewPreloadedSafeMap(loaded)
-	return index
-}
+// func (in *Indexer) LoadFromDisk() *common.SafeMap[string, []common.Posting] {
+// 	loaded := LoadIndex()
+// 	index := common.NewPreloadedSafeMap(loaded)
+// 	return index
+// }
 
 func (in *Indexer) LoadTermsFromDisk() *common.SafeMap[string, TermData] {
 	loaded := LoadTerms()

@@ -11,10 +11,10 @@ func Tokenize(raw string) []string {
 	var out []string
 
 	raw = strings.ToLower(raw)
-
 	out = strings.FieldsFunc(raw, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
 	})
+  
 	Normalize(out)
 	return out
 }

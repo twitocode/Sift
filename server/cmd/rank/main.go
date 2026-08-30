@@ -7,6 +7,7 @@ import (
 
 	"github.com/twitocode/sift/internal/common"
 	"github.com/twitocode/sift/internal/indexer"
+	"github.com/twitocode/sift/internal/metrics"
 	"github.com/twitocode/sift/internal/progress"
 	"github.com/twitocode/sift/internal/ranker"
 	"github.com/twitocode/sift/internal/store"
@@ -29,14 +30,15 @@ func main() {
 	indexerStore := store.NewIndexerStore(sqliteDb, log)
 
 	in := indexer.NewIndexer(log, cfg, pageStore, indexerStore)
-	type indexResult struct {
-		terms map[string]indexer.TermData
+	type rankIndexResult struct {
+		terms   map[string]indexer.TermData
+		metrics *metrics.IndexerMetrics
 	}
-	result := make(chan indexResult, 1)
+	result := make(chan rankIndexResult, 1)
 	done := make(chan error, 1)
 	go func() {
-		terms, err := in.Get()
-		result <- indexResult{terms: terms}
+		terms, indexMetrics, err := in.Get()
+		result <- rankIndexResult{terms: terms, metrics: indexMetrics}
 		done <- err
 		close(done)
 	}()
@@ -46,9 +48,10 @@ func main() {
 	}
 	// in.PrintSummary()
 
-	terms := (<-result).terms
+	indexResult := <-result
+	terms := indexResult.terms
 	ctx := context.Background()
-	ranker := ranker.NewRanker(log, cfg, terms, indexerStore, pageStore)
+	ranker := ranker.NewRanker(log, cfg, terms, indexerStore, pageStore, indexResult.metrics)
 	ranker.LoadDocuments(ctx)
 	ranker.LoadIndexMeta(ctx)
 
