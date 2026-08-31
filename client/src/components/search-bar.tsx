@@ -7,7 +7,6 @@ import {
 	InputGroupAddon,
 	InputGroupInput,
 } from "#/components/ui/input-group.tsx";
-import { cn } from "#/lib/utils.ts";
 
 type SearchBarProps = {
 	initial?: string;
@@ -24,31 +23,31 @@ export default function SearchBar(props: SearchBarProps) {
 		navigate({ to: "/search" + `?q=${query}` });
 	};
 
+	const form = (
+		<form onSubmit={handleSearch} className="min-w-0 w-full flex-1">
+			<InputGroup className="w-full bg-primary px-2 py-6 text-primary-foreground dark:bg-primary">
+				<InputGroupInput
+					value={query}
+					onChange={(e) => setQuery(e.target.value)}
+					autoFocus={props.initial == undefined}
+					className="transition ease-in placeholder:text-primary-foreground/50 focus:border-none dark:bg-transparent"
+					placeholder="Search here "
+				/>
+				<InputGroupAddon align="inline-end">
+					<SearchIcon className="text-primary-foreground" />
+				</InputGroupAddon>
+			</InputGroup>
+		</form>
+	);
+
+	if (!props.balanced) {
+		return form;
+	}
+
 	return (
-		<div
-			className={cn(
-				"flex w-full items-center gap-2",
-				props.balanced ? "max-w-xl" : "md:w-max",
-			)}
-		>
-			{props.balanced && <div className="size-8 shrink-0" aria-hidden="true" />}
-			<form
-				onSubmit={handleSearch}
-				className="min-w-0 flex-1 md:w-200 md:flex-none"
-			>
-				<InputGroup className="w-full bg-primary px-2 py-6 text-primary-foreground dark:bg-primary">
-					<InputGroupInput
-						value={query}
-						onChange={(e) => setQuery(e.target.value)}
-						autoFocus={props.initial == undefined}
-						className="transition ease-in placeholder:text-primary-foreground/50 focus:border-none dark:bg-transparent"
-						placeholder="Search here "
-					/>
-					<InputGroupAddon align="inline-end">
-						<SearchIcon className="text-primary-foreground" />
-					</InputGroupAddon>
-				</InputGroup>
-			</form>
+		<div className="flex w-full min-w-0 max-w-xl items-center gap-2">
+			<div className="size-8 shrink-0" aria-hidden="true" />
+			{form}
 			<div className="shrink-0">
 				<ModeToggle />
 			</div>

@@ -25,14 +25,14 @@ export default function SearchResult(props: SearchResultProps) {
   return (
 		<Tooltip>
 			<TooltipTrigger asChild>
-				<div className="group w-full p-4 text-left transition duration-150 ease-linear hover:bg-muted/60">
-					<div className="flex center gap-3 mb-2">
-						<div className="p-2 bg-muted size-10 min-h-10 min-w-10 rounded-xl flex items-center justify-center">
+				<div className="group min-w-0 w-full p-4 text-left transition duration-150 ease-linear hover:bg-muted/60">
+					<div className="mb-2 flex min-w-0 items-center gap-3">
+						<div className="flex size-10 min-h-10 min-w-10 shrink-0 items-center justify-center rounded-xl bg-muted p-2">
 							<img src={props.favicon || (theme.theme == "dark" ? globe : globeDark)} alt="" />
 						</div>
-						<div className="flex flex-col justify-center">
-							<p>{props.ogTitle}</p>
-							<p className="text-sm text-muted-foreground">
+						<div className="flex min-w-0 flex-col justify-center">
+							<p className="truncate">{props.ogTitle}</p>
+							<p className="truncate text-sm text-muted-foreground">
 								{getUrlWithSeperator(props.url).map((x, i) => (
 									<span
 										key={i}
@@ -48,7 +48,7 @@ export default function SearchResult(props: SearchResultProps) {
 					</div>
 					<a
 						className={cn(
-							"text-xl font-bold text-blue-800 group-hover:underline dark:text-blue-400",
+							"wrap-break-word text-xl font-bold text-blue-800 group-hover:underline dark:text-blue-400",
 						)}
 						target="_blank"
 						rel="noopener noreferrer"
@@ -56,7 +56,7 @@ export default function SearchResult(props: SearchResultProps) {
 					>
 						{props.title}
 					</a>
-					<p className="text-sm text-muted-foreground">{props.desc}</p>
+					<p className="wrap-break-word text-sm text-muted-foreground">{props.desc}</p>
 				</div>
 			</TooltipTrigger>
 			<TooltipContent

@@ -55,7 +55,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 			<body>
 				<ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
 					<TooltipProvider>
-						<div className="flex min-h-svh flex-col px-4 py-5 md:px-40 md:py-20">
+						<div className="flex min-h-svh flex-col bg-background px-4 py-5 md:px-40 md:py-20">
 							{children}
 						</div>
 					</TooltipProvider>
