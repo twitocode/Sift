@@ -68,7 +68,7 @@ export default function SearchResult(props: SearchResultProps) {
 				<span className="text-lg">
 					Ranking - {Math.round((props.score + Number.EPSILON) * 100) / 100}
 				</span>
-				<span className="flex flex-col gap-1">
+				{/* <span className="flex flex-col gap-1">
 					<span className="">
 						<span className="">Title Tokens:</span>{" "}
 						<span className="text-muted-foreground">{props.titleTokens}</span>
@@ -77,7 +77,7 @@ export default function SearchResult(props: SearchResultProps) {
 						<span className="">Body Tokens:</span>{" "}
 						<span className="text-muted-foreground">{props.bodyTokens}</span>
 					</span>
-				</span>
+				</span> */}
 			</TooltipContent>
 		</Tooltip>
 	);

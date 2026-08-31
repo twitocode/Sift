@@ -35,13 +35,6 @@ func run(ctx context.Context, getenv func(string) string) error {
 
 	defer func() { _ = logger.Sync() }()
 
-	pool, err := setupPostgres(ctx, cfg)
-	if err != nil {
-		return err
-	}
-
-	defer pool.Close()
-
 	sqliteDb, err := sql.Open("sqlite", cfg.SQLitePath()+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		log.Fatal("Sqlite connection error", zap.Error(err))
@@ -57,10 +50,9 @@ func run(ctx context.Context, getenv func(string) string) error {
 	}
 
 	ranker := ranker.NewRanker(logger, cfg, terms, indexStats, indexerStore, pageStore)
-
 	ranker.LoadDocuments(context.Background())
 
-	services := app.NewServices(cfg, pool, logger, ranker)
+	services := app.NewServices(cfg, logger, ranker)
 	handler := app.NewServer(cfg, services, logger)
 
 	srv := &http.Server{
