@@ -1,12 +1,3 @@
-import { Bar, BarChart, LabelList, XAxis, YAxis } from "recharts";
-
-import {
-	type ChartConfig,
-	ChartContainer,
-	ChartTooltip,
-	ChartTooltipContent,
-} from "#/components/ui/chart";
-
 export type TokenStats = {
 	postings_count: number;
 	scan_time: number;
@@ -19,13 +10,6 @@ const formatMicros = (micros: number) =>
 		? `${(micros / 1000).toFixed(2)} ms`
 		: `${micros.toFixed(2)} µs`;
 
-const chartConfig = {
-	postings_count: {
-		label: "Pages with token",
-		color: "#FEA93C",
-	},
-} satisfies ChartConfig;
-
 export function TokensChart({
 	tokenStats,
 }: {
@@ -33,68 +17,37 @@ export function TokensChart({
 }) {
 	const data = Object.entries(tokenStats)
 		.map(([token, stats]) => ({ token, ...stats }))
+		.filter((entry) => entry.postings_count > 0)
 		.sort((a, b) => b.postings_count - a.postings_count);
 
+	if (data.length === 0) {
+		return null;
+	}
+
+	const max = data[0].postings_count;
+
 	return (
-		<ChartContainer
-			config={chartConfig}
-			className="aspect-auto w-full overflow-visible [&_.recharts-surface]:overflow-visible [&_.recharts-wrapper]:overflow-visible"
-			style={{ height: Math.max(data.length * 40, 80) }}
-		>
-			<BarChart
-				accessibilityLayer
-				data={data}
-				layout="vertical"
-				margin={{ left: 8, right: 48 }}
-			>
-				<XAxis type="number" dataKey="postings_count" hide />
-				<YAxis dataKey="token" type="category" hide />
-				<ChartTooltip
-					cursor={false}
-					content={
-						<ChartTooltipContent
-							hideLabel
-							formatter={(_value, _name, item) => {
-								const stats = item.payload as TokenStats & { token: string };
-								return (
-									<div className="flex flex-col gap-1">
-										<span className="font-bold text-foreground">{stats.token}</span>
-										<div className="flex flex-1 items-center justify-between gap-4 leading-none">
-											<span className="text-muted-foreground">Scan time</span>
-											<span className="font-mono font-medium text-foreground tabular-nums">
-												{formatMicros(stats.scan_time)}
-											</span>
-										</div>
-									</div>
-								);
-							}}
-						/>
-					}
-				/>
-				<Bar
-					dataKey="postings_count"
-					fill="var(--color-postings_count)"
-					radius={5}
-					isAnimationActive={false}
+		<div className="flex flex-col gap-1.5">
+			{data.map((entry) => (
+				<div
+					key={entry.token}
+					className="group relative flex min-h-8 items-center overflow-hidden rounded-md bg-black/5 py-1.5"
+					title={`Scan time: ${formatMicros(entry.scan_time)}`}
 				>
-					<LabelList
-						dataKey="token"
-						position="insideLeft"
-						offset={8}
-						className="fill-neutral-950 font-bold"
-						fontSize={12}
-						fontWeight={700}
+					<div
+						className="absolute inset-y-0 left-0 rounded-md bg-[#FEA93C] transition-[width]"
+						style={{
+							width: `${Math.max((entry.postings_count / max) * 100, 1)}%`,
+						}}
 					/>
-					<LabelList
-						dataKey="postings_count"
-						position="right"
-						offset={8}
-						className="fill-foreground"
-						fontSize={12}
-						formatter={(value) => formatNumber(Number(value))}
-					/>
-				</Bar>
-			</BarChart>
-		</ChartContainer>
+					<span className="relative z-10 min-w-0 flex-1 break-words pl-2.5 pr-2 text-xs font-bold text-neutral-950">
+						{entry.token}
+					</span>
+					<span className="relative z-10 shrink-0 pr-2.5 font-mono text-xs tabular-nums text-foreground">
+						{formatNumber(entry.postings_count)}
+					</span>
+				</div>
+			))}
+		</div>
 	);
 }

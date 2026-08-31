@@ -22,7 +22,7 @@ export default function SearchResult(props: SearchResultProps) {
 		<Tooltip>
 			<TooltipTrigger asChild>
 				<div className="group w-full p-4 text-left transition duration-150 ease-linear hover:bg-[rgba(79,105,113,0.1)]">
-					<div className="flex items-center gap-3 mb-2">
+					<div className="flex center gap-3 mb-2">
 						<div className="p-2 bg-[rgba(27,27,27,0.53)] size-10 min-h-10 min-w-10 rounded-xl flex items-center justify-center">
 							<img src={props.favicon || globe} alt="" />
 						</div>
@@ -52,11 +52,11 @@ export default function SearchResult(props: SearchResultProps) {
 					>
 						{props.title}
 					</a>
-					<p className="text-sm md:w-1/2 text-gray-700">{props.desc}</p>
+					<p className="text-sm  text-gray-700">{props.desc}</p>
 				</div>
 			</TooltipTrigger>
 			<TooltipContent
-				side="left"
+				side="right"
 				align="center"
 				sideOffset={8}
 				className="flex flex-col items-start py-3 px-3"

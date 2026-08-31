@@ -142,6 +142,22 @@ func TestTokenizeQueryDoesNotDuplicateSingleToken(t *testing.T) {
 	}
 }
 
+func TestTokenizeQueryStemsWordsIndividually(t *testing.T) {
+	got := TokenizeQuery("antidisestablishmentarianism mcmaster university")
+	t.Logf("TokenizeQuery() = %v", got)
+
+	for _, want := range []string{"antidisestablishmentarian", "mcmaster", "univers"} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("TokenizeQuery() = %v, want to contain %q", got, want)
+		}
+	}
+	for _, unwanted := range []string{"un", "ivers"} {
+		if slices.Contains(got, unwanted) {
+			t.Fatalf("TokenizeQuery() = %v, should not contain fragment %q", got, unwanted)
+		}
+	}
+}
+
 func TestTokenizeQueryNormalizesWhitespaceInOriginal(t *testing.T) {
 	got := TokenizeQuery("  Hello\n\tWorld  ")
 	if !slices.Contains(got, "hello world") {
