@@ -90,8 +90,7 @@ func Tokenize(raw string) []string {
 		}
 	}
 
-	Normalize(out)
-	return out
+	return Normalize(out)
 }
 
 func TokenizeQuery(raw string) []string {
@@ -121,9 +120,10 @@ func TokenizeURL(raw string) (domainTokens, pathTokens []string) {
 		suffix, _ := publicsuffix.PublicSuffix(host)
 		name := strings.TrimSuffix(host, "."+suffix)
 		for _, label := range strings.Split(name, ".") {
-			if label != "" {
-				domainTokens = append(domainTokens, label)
+			if label == "" {
+				continue
 			}
+			domainTokens = append(domainTokens, expandToken(label)...)
 		}
 	}
 
@@ -300,19 +300,40 @@ func splitCamelCase(s string) []string {
 	return parts
 }
 
-func Normalize(tokens []string) {
-	for i, token := range tokens {
+func Normalize(tokens []string) []string {
+	seen := make(map[string]struct{}, len(tokens)*2)
+	out := make([]string, 0, len(tokens)*2)
+
+	add := func(token string) {
+		if token == "" {
+			return
+		}
+		if _, ok := seen[token]; ok {
+			return
+		}
+		seen[token] = struct{}{}
+		out = append(out, token)
+	}
+
+	for _, token := range tokens {
+		add(token)
 		if !shouldStem(token) {
 			continue
 		}
 		stemmed, err := snowball.Stem(token, "english", true)
-		if err == nil {
-			tokens[i] = stemmed
+		if err != nil || stemmed == token {
+			continue
 		}
+		add(stemmed)
 	}
+
+	return out
 }
 
 func shouldStem(token string) bool {
+	if utf8.RuneCountInString(token) <= 4 {
+		return false
+	}
 	for _, r := range token {
 		if unicode.IsNumber(r) || isAttachedSymbol(r) || r == '.' || r == '-' || r == '_' {
 			return false

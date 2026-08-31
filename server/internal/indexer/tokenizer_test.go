@@ -7,7 +7,7 @@ import (
 
 func TestTokenizeDoesNotSplitPercentEncodedSpaces(t *testing.T) {
 	got := Tokenize("in%20another%20dimension")
-	want := []string{"in", "anoth", "dimens"}
+	want := []string{"in", "another", "anoth", "dimension", "dimens"}
 
 	if !slices.Equal(got, want) {
 		t.Fatalf("Tokenize() = %v, want %v", got, want)
@@ -165,5 +165,36 @@ func TestTokenizeQueryNormalizesWhitespaceInOriginal(t *testing.T) {
 	}
 	if slices.Contains(got, "hello\n\tworld") {
 		t.Fatalf("TokenizeQuery() = %v, should not contain raw whitespace", got)
+	}
+}
+
+func TestTokenizeKeepsOriginalAndStem(t *testing.T) {
+	got := Tokenize("archive")
+	for _, want := range []string{"archive", "archiv"} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("Tokenize() = %v, want to contain %q", got, want)
+		}
+	}
+}
+
+func TestTokenizeDoesNotStemShortNames(t *testing.T) {
+	got := Tokenize("anne")
+	if !slices.Contains(got, "anne") {
+		t.Fatalf("Tokenize() = %v, want to contain %q", got, "anne")
+	}
+	if slices.Contains(got, "ann") {
+		t.Fatalf("Tokenize() = %v, should not stem short name to %q", got, "ann")
+	}
+}
+
+func TestTokenizeURLSplitsHyphenatedDomainLabels(t *testing.T) {
+	domain, _ := TokenizeURL("https://anne-hathaway.org/gallery")
+	for _, want := range []string{"anne-hathaway.org", "anne-hathaway", "anne", "hathaway"} {
+		if !slices.Contains(domain, want) {
+			t.Fatalf("TokenizeURL() domain = %v, want to contain %q", domain, want)
+		}
+	}
+	if slices.Contains(domain, "ann") {
+		t.Fatalf("TokenizeURL() domain = %v, should not stem domain label to %q", domain, "ann")
 	}
 }

@@ -43,3 +43,27 @@ func TestIndexSeparatesDomainTokensFromURLPathTokens(t *testing.T) {
 		}
 	}
 }
+
+func TestIndexSplitsHyphenatedDomainLabels(t *testing.T) {
+	in := NewIndexer(zap.NewNop(), nil, nil, nil)
+	page := &common.Page{
+		ID:       7,
+		FinalURL: common.URL("https://anne-hathaway.org/gallery"),
+	}
+
+	in.Index(context.Background(), page)
+
+	for _, token := range []string{"anne", "hathaway", "anne-hathaway"} {
+		postings, ok := in.index.Get(token)
+		if !ok || len(postings) != 1 {
+			t.Fatalf("postings for %q = %v, want one posting", token, postings)
+		}
+		if postings[0].DomainFrequency == 0 {
+			t.Fatalf("DomainFrequency for %q = 0, want domain match", token)
+		}
+	}
+
+	if _, ok := in.index.Get("ann"); ok {
+		t.Fatalf("indexed stemmed domain token %q", "ann")
+	}
+}

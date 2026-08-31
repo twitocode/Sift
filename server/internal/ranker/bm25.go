@@ -11,7 +11,7 @@ func CalculateBM25(docWithTerm int, terms []string, docTokenCount uint32, docTer
 
 	fqdi := docTermFreq
 	nqi := float64(docWithTerm)
-	IDF := math.Log((float64(indexStats.DocumentCount)-nqi+0.5)/(nqi+0.5) + 1)
+	IDF := ComputeIDF(indexStats, nqi)
 	D := docTokenCount
 	avgdl := indexStats.AverageDocLength
 	k := 1.35
@@ -24,4 +24,9 @@ func CalculateBM25(docWithTerm int, terms []string, docTokenCount uint32, docTer
 	score += IDF * (float64(fqdi) * (k + 1)) / (float64(fqdi) + (k * ((b * (float64(D) / avgdl)) + 1 - b)))
 
 	return score
+}
+
+func ComputeIDF(indexStats *common.IndexStats, nqi float64) float64 {
+	IDF := math.Log((float64(indexStats.DocumentCount)-nqi+0.5)/(nqi+0.5) + 1)
+	return IDF
 }

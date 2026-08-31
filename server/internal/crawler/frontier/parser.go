@@ -3,6 +3,7 @@ package frontier
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,6 +40,7 @@ type ParserOutput struct {
 	hasBeenCrawled bool
 	foundCanonical string
 	links          []common.URL
+  isInvalid bool
 }
 
 func NewHTMLParser(log *zap.Logger, metrics *metrics.CrawlMetrics) *HTMLParser {
@@ -85,6 +87,10 @@ func (p *HTMLParser) Parse(ctx context.Context, res *http.Response, job SpiderJo
 
 	//TODO: add "github.com/abadojack/whatlanggo" for proper language checking
 
+  if output.isInvalid {
+    return nil, errors.New("Page is invalid")
+  }
+  
 	if output.description == output.title {
 		output.description = ""
 	}
@@ -252,6 +258,13 @@ Loop:
 
 				if token.Data == "title" {
 					readingTitle = false
+
+					if strings.Contains(strings.ToLower(out.title), "redirect") {
+            p.log.Debug("Page is a redirect page", zap.String("url", url.String()))
+						//TODO: proper error handling
+            out.isInvalid = true
+						break Loop
+					}
 				}
 
 				if token.Data == "body" {
@@ -287,8 +300,9 @@ Loop:
 			foundCanonical: "",
 			links:          foundUrls,
 		}
-
 	}
+
+
 	return out
 }
 

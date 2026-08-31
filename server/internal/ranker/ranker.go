@@ -54,64 +54,25 @@ func (r *Ranker) LoadDocuments(ctx context.Context) {
 	r.log.Info("Loaded all documents", zap.Int("count", len(docs)))
 }
 
-func sortPagesByScore(pages []*common.Page, scores map[uint32]float64) {
-	slices.SortFunc(pages, func(a *common.Page, b *common.Page) int {
-		switch {
-		case scores[uint32(a.ID)] > scores[uint32(b.ID)]:
-			return -1
-		case scores[uint32(a.ID)] < scores[uint32(b.ID)]:
-			return 1
-		default:
-			return 0
-		}
-	})
-}
-
-func collectDuplicateURLs(pages []*common.Page) map[int64][]string {
-	parents := make(map[int64]int64, len(pages))
-	for _, page := range pages {
-		if page.DuplicateOf >= 0 {
-			parents[page.ID] = page.DuplicateOf
-		}
-	}
-
-	duplicates := make(map[int64][]string)
-	for _, page := range pages {
-		if page.DuplicateOf < 0 {
-			continue
-		}
-
-		canonicalID := page.DuplicateOf
-		for range len(parents) {
-			parentID, exists := parents[canonicalID]
-			if !exists {
-				break
-			}
-			canonicalID = parentID
-		}
-
-		duplicates[canonicalID] = append(
-			duplicates[canonicalID],
-			page.RequestedURL.String(),
-		)
-	}
-	return duplicates
-}
-
 func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 	startTime := time.Now()
 	query = strings.ToLower(query)
-	tokens := indexer.TokenizeQuery(query)
-	scores := make(map[uint32]float64)
 
-	//TODO: need a better way to handle cases like 'gItHuB' that dont match tokens without blowing up the index
+  //new system keeps track of original token from a query and the stemmed-normalized version
+  //It also keeps track of coverage. Page with 10 tokens is ranked lower than a page with 1 github, 1 mcp, and 1 repository token.
+  
+	originalTokens := strings.Fields(query)
+	tokens := queryLookupTokens(query)
+
+	scores := make(map[uint32]float64)
+	matchedOriginals := make(map[uint32]map[string]struct{})
 
 	candidatesHeap := NewBestCandidateHeap(50)
 	tokenStats := make(map[string]TokenStats)
+	pagesQueried := make(map[uint32]struct{})
 
 	var totalPostingScanDuration int64
 	var postingScanCount int
-	pagesQueried := make(map[uint32]struct{})
 
 	for _, token := range tokens {
 		data, ok := r.terms[token]
@@ -122,28 +83,39 @@ func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 
 		postingStartTime := time.Now()
 		postings := indexer.LoadIndexSection(r.postingReader, data.ByteOffset, data.Count)
+		idf := ComputeIDF(r.indexMeta, float64(len(postings)))
+		covered := originalsCoveredByToken(token, originalTokens)
 
 		for _, posting := range postings {
-			score, ok := scores[posting.PageID]
-			if !ok {
-				scores[posting.PageID] = 0
-			}
-
+			score := scores[posting.PageID]
 			tokenCount := r.docs[posting.PageID]
 
 			score += CalculateBM25(len(postings), tokens, tokenCount, posting.BodyFrequency, r.indexMeta)
+
 			score += math.Pow(4.5, float64(posting.TitleFrequency))
-			score += domainMatchBoost(posting.DomainFrequency)
-			score += urlMatchBoost(posting.URLFrequency)
+			score += domainMatchBoost(posting.DomainFrequency, idf)
+			score += urlMatchBoost(posting.URLFrequency, idf)
 
 			if token == query || strings.Contains(token, query) {
 				score += 100
 			}
+			if slices.Contains(originalTokens, token) {
+				score += idf * 2
+			}
 			scores[posting.PageID] = score
 
-			if _, ok := pagesQueried[posting.PageID]; !ok {
-				pagesQueried[posting.PageID] = struct{}{}
+			if len(covered) > 0 {
+				seen := matchedOriginals[posting.PageID]
+				if seen == nil {
+					seen = make(map[string]struct{})
+					matchedOriginals[posting.PageID] = seen
+				}
+				for _, original := range covered {
+					seen[original] = struct{}{}
+				}
 			}
+
+			pagesQueried[posting.PageID] = struct{}{}
 		}
 
 		scanTime := time.Since(postingStartTime).Microseconds()
@@ -159,6 +131,12 @@ func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 		}
 		totalPostingScanDuration += scanTime
 		postingScanCount++
+	}
+
+	if len(originalTokens) > 0 {
+		for id, score := range scores {
+			scores[id] = score * coverageMultiplier(len(matchedOriginals[id]), len(originalTokens))
+		}
 	}
 
 	for id, score := range scores {
@@ -237,7 +215,7 @@ func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 
 	return out
 }
-
+  
 func averagePostingScanDuration(totalDuration int64, scanCount int) float64 {
 	if scanCount == 0 {
 		return 0
@@ -245,10 +223,24 @@ func averagePostingScanDuration(totalDuration int64, scanCount int) float64 {
 	return float64(totalDuration) / float64(scanCount)
 }
 
-func urlMatchBoost(frequency uint32) float64 {
-	return float64(frequency) * 100
+func urlMatchBoost(frequency uint32, idf float64) float64 {
+	return idf * float64(frequency) * 0.24
 }
 
-func domainMatchBoost(frequency uint32) float64 {
-	return float64(frequency) * 1000
+func domainMatchBoost(frequency uint32, idf float64) float64 {
+	return idf * float64(frequency) * 1.2
+}
+
+func coverageMultiplier(matched, total int) float64 {
+	if total <= 0 {
+		return 1
+	}
+	if matched <= 0 {
+		return 0
+	}
+	if matched > total {
+		matched = total
+	}
+	ratio := float64(matched) / float64(total)
+	return ratio * ratio
 }
