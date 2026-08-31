@@ -1,25 +1,23 @@
+import { createFileRoute } from "@tanstack/react-router";
 import Logo from "#/components/logo.tsx";
 import SearchBar from "#/components/search-bar.tsx";
-import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({
-  component: Home,
-  head: ({}) => ({
-    meta: [
-      {
-        title: "Sift",
-      },
-    ],
-  }),
+	component: Home,
+	head: ({}) => ({
+		meta: [
+			{
+				title: "Sift",
+			},
+		],
+	}),
 });
 
 function Home() {
-  return (
-    <div className="flex justify-center items-center flex-col gap-20 h-full w-full">
-      <div className="flex flex-col items-center gap-2">
-        <Logo />
-      </div>
-      <SearchBar />
-    </div>
-  );
+	return (
+		<div className="flex w-full flex-1 flex-col items-center justify-center gap-8 md:gap-20">
+			<Logo />
+			<SearchBar balanced />
+		</div>
+	);
 }

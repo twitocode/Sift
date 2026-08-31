@@ -5,6 +5,8 @@ import {
 } from "#/components/ui/tooltip";
 import { cn, getUrlWithSeperator } from "#/lib/utils.ts";
 import globe from "../assets/globe.png";
+import globeDark from "../assets/globe-dark.png";
+import { useTheme } from "#/components/theme-provider.tsx";
 
 type SearchResultProps = {
 	title: string;
@@ -18,22 +20,24 @@ type SearchResultProps = {
 };
 
 export default function SearchResult(props: SearchResultProps) {
-	return (
+  const theme = useTheme()
+
+  return (
 		<Tooltip>
 			<TooltipTrigger asChild>
-				<div className="group w-full p-4 text-left transition duration-150 ease-linear hover:bg-[rgba(79,105,113,0.1)]">
+				<div className="group w-full p-4 text-left transition duration-150 ease-linear hover:bg-muted/60">
 					<div className="flex center gap-3 mb-2">
-						<div className="p-2 bg-[rgba(27,27,27,0.53)] size-10 min-h-10 min-w-10 rounded-xl flex items-center justify-center">
-							<img src={props.favicon || globe} alt="" />
+						<div className="p-2 bg-muted size-10 min-h-10 min-w-10 rounded-xl flex items-center justify-center">
+							<img src={props.favicon || (theme.theme == "dark" ? globe : globeDark)} alt="" />
 						</div>
 						<div className="flex flex-col justify-center">
 							<p>{props.ogTitle}</p>
-							<p className="text-sm text-gray-600">
+							<p className="text-sm text-muted-foreground">
 								{getUrlWithSeperator(props.url).map((x, i) => (
 									<span
 										key={i}
 										className={
-											x !== " > " && i !== 0 ? "font-bold text-gray-700" : ""
+											x !== " > " && i !== 0 ? "font-bold text-foreground" : ""
 										}
 									>
 										{x}
@@ -44,7 +48,7 @@ export default function SearchResult(props: SearchResultProps) {
 					</div>
 					<a
 						className={cn(
-							"text-xl font-bold text-blue-800 group-hover:underline",
+							"text-xl font-bold text-blue-800 group-hover:underline dark:text-blue-400",
 						)}
 						target="_blank"
 						rel="noopener noreferrer"
@@ -52,7 +56,7 @@ export default function SearchResult(props: SearchResultProps) {
 					>
 						{props.title}
 					</a>
-					<p className="text-sm  text-gray-700">{props.desc}</p>
+					<p className="text-sm text-muted-foreground">{props.desc}</p>
 				</div>
 			</TooltipTrigger>
 			<TooltipContent
@@ -67,11 +71,11 @@ export default function SearchResult(props: SearchResultProps) {
 				<span className="flex flex-col gap-1">
 					<span className="">
 						<span className="">Title Tokens:</span>{" "}
-						<span className="text-gray-400">{props.titleTokens}</span>
+						<span className="text-muted-foreground">{props.titleTokens}</span>
 					</span>
 					<span className="">
 						<span className="">Body Tokens:</span>{" "}
-						<span className="text-gray-400">{props.bodyTokens}</span>
+						<span className="text-muted-foreground">{props.bodyTokens}</span>
 					</span>
 				</span>
 			</TooltipContent>

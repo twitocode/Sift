@@ -31,7 +31,7 @@ export function TokensChart({
 			{data.map((entry) => (
 				<div
 					key={entry.token}
-					className="group relative flex min-h-8 items-center overflow-hidden rounded-md bg-black/5 py-1.5"
+					className="group relative flex min-h-8 items-center overflow-hidden rounded-md bg-muted py-1.5"
 					title={`Scan time: ${formatMicros(entry.scan_time)}`}
 				>
 					<div
@@ -40,7 +40,7 @@ export function TokensChart({
 							width: `${Math.max((entry.postings_count / max) * 100, 1)}%`,
 						}}
 					/>
-					<span className="relative z-10 min-w-0 flex-1 break-words pl-2.5 pr-2 text-xs font-bold text-neutral-950">
+					<span className="relative z-10 min-w-0 flex-1 wrap-break-word pl-2.5 pr-2 text-xs font-bold text-neutral-950 dark:text-neutral-100">
 						{entry.token}
 					</span>
 					<span className="relative z-10 shrink-0 pr-2.5 font-mono text-xs tabular-nums text-foreground">

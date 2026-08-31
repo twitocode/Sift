@@ -37,9 +37,9 @@ const formatCompact = (n: number) =>
 function IndexStat({ label, value }: { label: string; value: number }) {
 	return (
 		<div className="flex items-baseline justify-between gap-4 py-2">
-			<span className="text-sm text-gray-500">{label}</span>
+			<span className="text-sm text-muted-foreground">{label}</span>
 			<span
-				className="font-mono text-sm font-bold tabular-nums text-gray-900"
+				className="font-mono text-sm font-bold tabular-nums text-foreground"
 				title={formatNumber(value)}
 			>
 				{formatCompact(value)}
@@ -57,11 +57,11 @@ export default function SearchMetrics(props: SearchMetricsProps) {
 	const hasTokens = Object.keys(props.tokenStats).length > 0;
 
 	return (
-		<aside className="md:pt- px-6  flex flex-col gap-10 self-start border-t border-t-gray-500 py-4 md:sticky md:top-5 md:mt-5 md:max-h-[calc(100vh-2.5rem)] md:overflow-y-auto md:border-t-0 md:border-l  md:pl-6">
+		<aside className="flex flex-col gap-10 self-start border-t border-border px-6 py-4 md:sticky md:top-5 md:mt-5 md:max-h-[calc(100vh-2.5rem)] md:overflow-y-auto md:border-t-0 md:border-l md:pl-6">
 			<div className="flex flex-col gap-6">
 				<div>
 					<h2 className="text-xl font-bold">Query metrics</h2>
-					<p className="text-sm text-gray-600">
+					<p className="text-sm text-muted-foreground">
 						{/* {formatNumber(props.count)}*/} Top 50 results queried in{" "}
 						{props.timeElapsed} ms
 					</p>
@@ -80,7 +80,7 @@ export default function SearchMetrics(props: SearchMetricsProps) {
 
 				{hasTokens && (
 					<div>
-						<h3 className="mb-2 text-sm font-bold tracking-wide text-gray-500">
+						<h3 className="mb-2 text-sm font-bold tracking-wide text-muted-foreground">
 							Pages Containing Token
 						</h3>
 						<TokensChart tokenStats={props.tokenStats} />
@@ -88,15 +88,15 @@ export default function SearchMetrics(props: SearchMetricsProps) {
 				)}
 			</div>
 
-			<div className="border-t border-t-gray-400 pt-6 gap-3 flex flex-col">
+			<div className="flex flex-col gap-3 border-t border-border pt-6">
 				<div>
 					<h2 className="text-xl font-bold tracking-wide">Index Metrics</h2>
-					<p className="mt-1 text-sm text-gray-500">
+					<p className="mt-1 text-sm text-muted-foreground">
 						Postings keep track of which documents contain a search term,
 						including the term’s title, body and URL frequency.
 					</p>
 				</div>
-				<div className="flex flex-col divide-y divide-gray-300/60">
+				<div className="flex flex-col divide-y divide-border">
 					<IndexStat
 						label="Docs indexed"
 						value={props.indexMetrics.docs_indexed}
