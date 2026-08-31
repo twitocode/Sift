@@ -83,7 +83,8 @@ WHERE
 SELECT
   id,
   title,
-  text
+  text,
+  final_url
 FROM
   pages
 WHERE

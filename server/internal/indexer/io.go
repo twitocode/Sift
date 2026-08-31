@@ -16,6 +16,18 @@ import (
 var POSTING_BYTES = int64(binary.Size(common.Posting{}))
 var indexDir = "index_data"
 
+const indexFormatVersion = 3
+const indexMetadataFile = "format"
+
+func currentIndexFormat() string {
+	return fmt.Sprintf("%d %d\n", indexFormatVersion, POSTING_BYTES)
+}
+
+func isIndexCompatible() bool {
+	data, err := os.ReadFile(filepath.Join(indexDir, indexMetadataFile))
+	return err == nil && string(data) == currentIndexFormat()
+}
+
 func DumpIndex(stats *common.IndexStats, index map[string][]common.Posting) error {
 	//TODO: atomic writing with .tmp file
 	info, err := os.Stat(indexDir)
@@ -76,11 +88,19 @@ func DumpIndex(stats *common.IndexStats, index map[string][]common.Posting) erro
 		return err
 	}
 
-	return nil
+	return os.WriteFile(
+		filepath.Join(indexDir, indexMetadataFile),
+		[]byte(currentIndexFormat()),
+		0o644,
+	)
 }
 
 func LoadTerms() map[string]TermData {
 	out := make(map[string]TermData)
+
+	if !isIndexCompatible() {
+		return out
+	}
 
 	termsFile, err := os.Open(filepath.Join(indexDir, "terms.dat"))
 	if err != nil {
@@ -92,23 +112,27 @@ func LoadTerms() map[string]TermData {
 	termsReader := bufio.NewScanner(termsFile)
 	for termsReader.Scan() {
 		data := strings.Fields(termsReader.Text())
-		if len(data) != 3 {
+		if len(data) < 3 {
 			fmt.Println("Incorrect fields for postings")
-			return out
+			return map[string]TermData{}
 		}
 
-		byteOffset, err := strconv.ParseInt(data[1], 10, 64)
+		byteOffsetIndex := len(data) - 2
+		countIndex := len(data) - 1
+
+		byteOffset, err := strconv.ParseInt(data[byteOffsetIndex], 10, 64)
 		if err != nil {
 			fmt.Println("Byte offset could not be parsed")
-			return out
+			return map[string]TermData{}
 		}
-		count, err := strconv.ParseInt(data[2], 10, 64)
+		count, err := strconv.ParseInt(data[countIndex], 10, 64)
 		if err != nil {
 			fmt.Println("Postings count offset could not be parsed")
-			return out
+			return map[string]TermData{}
 		}
 
-		out[data[0]] = TermData{Count: count, ByteOffset: byteOffset}
+		term := strings.Join(data[:byteOffsetIndex], " ")
+		out[term] = TermData{Count: count, ByteOffset: byteOffset}
 	}
 
 	if termsReader.Err() != nil {

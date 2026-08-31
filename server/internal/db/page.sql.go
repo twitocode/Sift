@@ -366,7 +366,8 @@ const getPaginatedPageBatch = `-- name: GetPaginatedPageBatch :many
 SELECT
   id,
   title,
-  text
+  text,
+  final_url
 FROM
   pages
 WHERE
@@ -382,9 +383,10 @@ type GetPaginatedPageBatchParams struct {
 }
 
 type GetPaginatedPageBatchRow struct {
-	ID    int64
-	Title sql.NullString
-	Text  sql.NullString
+	ID       int64
+	Title    sql.NullString
+	Text     sql.NullString
+	FinalUrl string
 }
 
 func (q *Queries) GetPaginatedPageBatch(ctx context.Context, arg GetPaginatedPageBatchParams) ([]GetPaginatedPageBatchRow, error) {
@@ -396,7 +398,12 @@ func (q *Queries) GetPaginatedPageBatch(ctx context.Context, arg GetPaginatedPag
 	var items []GetPaginatedPageBatchRow
 	for rows.Next() {
 		var i GetPaginatedPageBatchRow
-		if err := rows.Scan(&i.ID, &i.Title, &i.Text); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Text,
+			&i.FinalUrl,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

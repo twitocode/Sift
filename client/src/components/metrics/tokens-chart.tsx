@@ -35,9 +35,6 @@ export function TokensChart({
 		.map(([token, stats]) => ({ token, ...stats }))
 		.sort((a, b) => b.postings_count - a.postings_count);
 
-	const longestToken = Math.max(...data.map((d) => d.token.length), 0);
-	const labelGutter = Math.max(48, longestToken * 9 + 12);
-
 	return (
 		<ChartContainer
 			config={chartConfig}
@@ -48,7 +45,7 @@ export function TokensChart({
 				accessibilityLayer
 				data={data}
 				layout="vertical"
-				margin={{ left: labelGutter, right: 48 }}
+				margin={{ left: 8, right: 48 }}
 			>
 				<XAxis type="number" dataKey="postings_count" hide />
 				<YAxis dataKey="token" type="category" hide />
@@ -58,13 +55,16 @@ export function TokensChart({
 						<ChartTooltipContent
 							hideLabel
 							formatter={(_value, _name, item) => {
-								const stats = item.payload as TokenStats;
+								const stats = item.payload as TokenStats & { token: string };
 								return (
-									<div className="flex flex-1 items-center justify-between gap-4 leading-none">
-										<span className="text-muted-foreground">Scan time</span>
-										<span className="font-mono font-medium text-foreground tabular-nums">
-											{formatMicros(stats.scan_time)}
-										</span>
+									<div className="flex flex-col gap-1">
+										<span className="font-bold text-foreground">{stats.token}</span>
+										<div className="flex flex-1 items-center justify-between gap-4 leading-none">
+											<span className="text-muted-foreground">Scan time</span>
+											<span className="font-mono font-medium text-foreground tabular-nums">
+												{formatMicros(stats.scan_time)}
+											</span>
+										</div>
 									</div>
 								);
 							}}
@@ -79,10 +79,11 @@ export function TokensChart({
 				>
 					<LabelList
 						dataKey="token"
-						position="left"
+						position="insideLeft"
 						offset={8}
-						className="fill-muted-foreground"
+						className="fill-neutral-950 font-bold"
 						fontSize={12}
+						fontWeight={700}
 					/>
 					<LabelList
 						dataKey="postings_count"

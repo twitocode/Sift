@@ -177,12 +177,8 @@ func (in *Indexer) Snapshot() progress.Snapshot {
 
 func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.DocumentStats {
 	textTokens := Tokenize(page.Text)
-	titleTokens := Tokenize(page.Title)
-	domain, err := page.FinalURL.GetDomain()
-	if err != nil {
-		domain = ""
-	}
-	domainTokens := Tokenize(domain)
+	titleTokens := TokenizeQuery(page.Title)
+	domainTokens, urlTokens := TokenizeURL(page.FinalURL.String())
 
 	in.metrics.BodyTokens.Add(int64(len(textTokens)))
 	in.metrics.TitleTokens.Add(int64(len(titleTokens)))
@@ -201,7 +197,9 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.Documen
 			postingMap[token] = common.Posting{
 				BodyFrequency:   1,
 				TitleFrequency:  0,
-				DomainFrequency: 0, PageID: uint32(page.ID),
+				DomainFrequency: 0,
+				URLFrequency:    0,
+				PageID:          uint32(page.ID),
 			}
 			in.metrics.TotalPostings.Add(1)
 		} else {
@@ -219,6 +217,7 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.Documen
 				BodyFrequency:   0,
 				TitleFrequency:  1,
 				DomainFrequency: 0,
+				URLFrequency:    0,
 				PageID:          uint32(page.ID),
 			}
 			in.metrics.TotalPostings.Add(1)
@@ -229,11 +228,25 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.Documen
 		in.metrics.TitlePostings.Add(1)
 	}
 
-	for _, token := range domainTokens {
+	for _, token := range urlTokens {
 		if entry, ok := postingMap[token]; !ok {
 			postingMap[token] = common.Posting{
 				TitleFrequency:  0,
 				BodyFrequency:   0,
+				DomainFrequency: 0,
+				URLFrequency:    1,
+				PageID:          uint32(page.ID),
+			}
+			in.metrics.TotalPostings.Add(1)
+		} else {
+			entry.URLFrequency += 1
+			postingMap[token] = entry
+		}
+	}
+
+	for _, token := range domainTokens {
+		if entry, ok := postingMap[token]; !ok {
+			postingMap[token] = common.Posting{
 				DomainFrequency: 1,
 				PageID:          uint32(page.ID),
 			}

@@ -101,7 +101,7 @@ func collectDuplicateURLs(pages []*common.Page) map[int64][]string {
 func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 	startTime := time.Now()
 	query = strings.ToLower(query)
-	tokens := indexer.Tokenize(query)
+	tokens := indexer.TokenizeQuery(query)
 	scores := make(map[uint32]float64)
 
 	//TODO: need a better way to handle cases like 'gItHuB' that dont match tokens without blowing up the index
@@ -133,8 +133,12 @@ func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 
 			score += CalculateBM25(len(postings), tokens, tokenCount, posting.BodyFrequency, r.indexMeta)
 			score += math.Pow(4.5, float64(posting.TitleFrequency))
-			score += math.Pow(6.5, float64(posting.DomainFrequency))
+			score += domainMatchBoost(posting.DomainFrequency)
+			score += urlMatchBoost(posting.URLFrequency)
 
+			if token == query || strings.Contains(token, query) {
+				score += 100
+			}
 			scores[posting.PageID] = score
 
 			if _, ok := pagesQueried[posting.PageID]; !ok {
@@ -174,6 +178,7 @@ func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 			if err != nil {
 				continue
 			}
+
 			r.pagesCache.Set(string(v.id), pageInfo, cache.DefaultExpiration)
 			results = append(results, pageInfo)
 		} else {
@@ -238,4 +243,12 @@ func averagePostingScanDuration(totalDuration int64, scanCount int) float64 {
 		return 0
 	}
 	return float64(totalDuration) / float64(scanCount)
+}
+
+func urlMatchBoost(frequency uint32) float64 {
+	return float64(frequency) * 100
+}
+
+func domainMatchBoost(frequency uint32) float64 {
+	return float64(frequency) * 1000
 }

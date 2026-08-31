@@ -33,6 +33,7 @@ type Posting struct {
 	//ranks higher
 	TitleFrequency  uint32
 	DomainFrequency uint32
+	URLFrequency    uint32
 }
 
 type DocumentStats struct {

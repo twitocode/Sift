@@ -41,9 +41,8 @@ export default function SearchMetrics(props: SearchMetricsProps) {
       <div className="flex flex-col gap-6">
         <div>
           <h2 className="text-xl font-bold">Query metrics</h2>
-          <span className="text-sm text-gray-700">What happened during your query</span>
           <p className="text-sm text-gray-600">
-            {formatNumber(props.count)} results in {props.timeElapsed} ms
+            {/* {formatNumber(props.count)}*/} Queried in {props.timeElapsed} ms 
           </p>
         </div>
 

@@ -69,3 +69,12 @@ func TestAveragePostingScanDuration(t *testing.T) {
 		t.Fatalf("averagePostingScanDuration() = %v, want %v", got, want)
 	}
 }
+
+func TestDomainMatchRanksFarAboveURLPathMatch(t *testing.T) {
+	domainBoost := domainMatchBoost(1)
+	urlBoost := urlMatchBoost(1)
+
+	if domainBoost < urlBoost*5 {
+		t.Fatalf("domain boost %v should be at least 5x URL path boost %v", domainBoost, urlBoost)
+	}
+}
