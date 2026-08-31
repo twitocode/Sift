@@ -60,3 +60,12 @@ func TestCollectDuplicateURLsDoesNotDependOnResultOrder(t *testing.T) {
 		)
 	}
 }
+
+func TestAveragePostingScanDuration(t *testing.T) {
+	got := averagePostingScanDuration(1800, 3)
+	want := float64(600)
+
+	if got != want {
+		t.Fatalf("averagePostingScanDuration() = %v, want %v", got, want)
+	}
+}

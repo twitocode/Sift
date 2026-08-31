@@ -37,47 +37,45 @@ export default function SearchMetrics(props: SearchMetricsProps) {
   const hasTokens = Object.keys(props.tokenStats).length > 0;
 
   return (
-    <aside className="md:pt-2 px-6  flex flex-col gap-6 self-start border-t border-t-gray-500 py-4 md:sticky md:top-5 md:mt-5 md:max-h-[calc(100vh-2.5rem)] md:overflow-y-auto md:border-t-0 md:border-l  md:pl-6">
-      <div>
-        <h2 className="text-xl font-bold">Query metrics</h2>
-        <p className="text-sm text-gray-600">
-          {formatNumber(props.count)} results in {props.timeElapsed} ms
-        </p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <Stat
-          label="Possible results"
-          value={formatNumber(props.possibleResults)}
-        />
-        <Stat
-          label="Avg postings scan"
-          value={formatMicros(props.averagePostingsScanDuration)}
-        />
-      </div>
-
-      {hasTokens && (
+    <aside className="md:pt-2 px-6  flex flex-col gap-10 self-start border-t border-t-gray-500 py-4 md:sticky md:top-5 md:mt-5 md:max-h-[calc(100vh-2.5rem)] md:overflow-y-auto md:border-t-0 md:border-l  md:pl-6">
+      <div className="flex flex-col gap-6">
         <div>
-          <h3 className="mb-2 text-sm font-bold tracking-wide text-gray-500">
-            Pages Containing Token
-          </h3>
-          <TokensChart tokenStats={props.tokenStats} />
+          <h2 className="text-xl font-bold">Query metrics</h2>
+          <span className="text-sm text-gray-700">What happened during your query</span>
+          <p className="text-sm text-gray-600">
+            {formatNumber(props.count)} results in {props.timeElapsed} ms
+          </p>
         </div>
-      )}
 
-      <div>
-        <h3 className="mb-2 text-sm font-bold tracking-wide text-gray-500">
-          Index
-        </h3>
+        <div className="grid grid-cols-2 gap-2">
+          <Stat
+            label="Possible results"
+            value={formatNumber(props.possibleResults)}
+          />
+          <Stat
+            label="Avg postings scan"
+            value={formatMicros(props.averagePostingsScanDuration)}
+          />
+        </div>
+
+        {hasTokens && (
+          <div>
+            <h3 className="mb-2 text-sm font-bold tracking-wide text-gray-500">
+              Pages Containing Token
+            </h3>
+            <TokensChart tokenStats={props.tokenStats} />
+          </div>
+        )}
+      </div>
+
+      <div className="border-t-gray-600 border-2 pt-10">
+        <h2 className="mb-2 text-xl font-bold tracking-wide">Index Metrics</h2>
         <div className="grid grid-cols-2 gap-2">
           <Stat
             label="Docs indexed"
             value={formatNumber(props.indexMetrics.docs_indexed)}
           />
-          <Stat
-            label="Docs read"
-            value={formatNumber(props.indexMetrics.docs_read)}
-          />
+
           <Stat
             label="Unique terms"
             value={formatNumber(props.indexMetrics.unique_terms)}

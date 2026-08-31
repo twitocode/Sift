@@ -109,10 +109,11 @@ func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 	candidatesHeap := NewBestCandidateHeap(50)
 	tokenStats := make(map[string]TokenStats)
 
-	var averagePostingScanDuration float64
+	var totalPostingScanDuration int64
+	var postingScanCount int
 	pagesQueried := make(map[uint32]struct{})
 
-	for i, token := range tokens {
+	for _, token := range tokens {
 		data, ok := r.terms[token]
 
 		if !ok {
@@ -152,11 +153,8 @@ func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 			stats.ScanTime = scanTime
 			tokenStats[token] = stats
 		}
-		if i > 0 {
-			averagePostingScanDuration += float64(scanTime) / float64(i)
-		} else {
-			averagePostingScanDuration = float64(scanTime)
-		}
+		totalPostingScanDuration += scanTime
+		postingScanCount++
 	}
 
 	for id, score := range scores {
@@ -227,10 +225,17 @@ func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
 		Count:                       len(searchResults),
 		TimeElapsed:                 time.Since(startTime).Milliseconds(),
 		TokenStats:                  tokenStats,
-		AveragePostingsScanDuration: averagePostingScanDuration,
+		AveragePostingsScanDuration: averagePostingScanDuration(totalPostingScanDuration, postingScanCount),
 		PossibleResultsQueried:      len(pagesQueried),
 		IndexerMetrics:              ToSimpleIndexerMetrics(r.indexMeta),
 	}
 
 	return out
+}
+
+func averagePostingScanDuration(totalDuration int64, scanCount int) float64 {
+	if scanCount == 0 {
+		return 0
+	}
+	return float64(totalDuration) / float64(scanCount)
 }
