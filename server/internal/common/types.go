@@ -27,12 +27,12 @@ type Page struct {
 }
 
 type Posting struct {
-	PageID    uint32
-	Frequency uint32
+	PageID        uint32
+	BodyFrequency uint32
 
 	//ranks higher
-	MatchesTitle bool
-	MatchesDomain bool
+	TitleFrequency  uint32
+	DomainFrequency uint32
 }
 
 type DocumentStats struct {
@@ -46,5 +46,14 @@ type IndexStats struct {
 	TotalTokenCount  uint64
 	AverageDocLength float64
 
-  sync.Mutex
+	DocumentsRead    int64
+	DocumentsIndexed int64
+	BodyTokens       int64
+	TitleTokens      int64
+	UniqueTerms      int64
+	TotalPostings    int64
+	TitlePostings    int64
+	TimeElapsed      int64
+
+	sync.Mutex
 }

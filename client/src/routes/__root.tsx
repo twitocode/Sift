@@ -1,3 +1,4 @@
+import { TooltipProvider } from "#/components/ui/tooltip.tsx";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import type { QueryClient } from "@tanstack/react-query";
 import {
@@ -44,10 +45,15 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        <div className="md:px-40 py-5se sm:py-20 min-h-screen md:h-screen">{children}</div>
+        <TooltipProvider>
+          <div className="md:px-40 py-5se sm:py-20 min-h-screen md:h-screen">
+            {children}
+          </div>
+        </TooltipProvider>
+
         <TanStackDevtools
           config={{
-            position: "bottom-right",
+            position: "bottom-left",
           }}
           plugins={[
             {

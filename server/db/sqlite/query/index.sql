@@ -9,10 +9,18 @@ INSERT INTO
   index_metadata (
     document_count,
     total_token_count,
-    average_doc_length
+    average_doc_length,
+    documents_read,
+    documents_indexed,
+    body_tokens,
+    title_tokens,
+    unique_terms,
+    total_postings,
+    title_postings,
+    time_elapsed
   )
 VALUES
-  (?, ?, ?);
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: AddDocumentMeta :exec
 INSERT INTO
@@ -22,7 +30,17 @@ VALUES
 
 -- name: GetLatestIndexMeta :one
 SELECT
-  document_count, total_token_count, average_doc_length
+  document_count,
+  total_token_count,
+  average_doc_length,
+  documents_read,
+  documents_indexed,
+  body_tokens,
+  title_tokens,
+  unique_terms,
+  total_postings,
+  title_postings,
+  time_elapsed
 FROM
   index_metadata
 ORDER BY

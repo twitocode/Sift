@@ -29,14 +29,13 @@ func main() {
 	indexerStore := store.NewIndexerStore(sqliteDb, log)
 
 	in := indexer.NewIndexer(log, cfg, pageStore, indexerStore)
-	type indexResult struct {
-		terms map[string]indexer.TermData
-	}
-	result := make(chan indexResult, 1)
+	result := make(chan map[string]indexer.TermData, 1)
+	stats := make(chan *common.IndexStats, 1)
 	done := make(chan error, 1)
 	go func() {
-		terms, err := in.Get()
-		result <- indexResult{terms: terms}
+		terms, indexStats, err := in.Get(context.Background())
+		result <- terms
+		stats <- indexStats
 		done <- err
 		close(done)
 	}()
@@ -46,11 +45,10 @@ func main() {
 	}
 	// in.PrintSummary()
 
-	terms := (<-result).terms
+	terms := <-result
 	ctx := context.Background()
-	ranker := ranker.NewRanker(log, cfg, terms, indexerStore, pageStore)
+	ranker := ranker.NewRanker(log, cfg, terms, <-stats, indexerStore, pageStore)
 	ranker.LoadDocuments(ctx)
-	ranker.LoadIndexMeta(ctx)
 
 	queries := []string{
 		"How does Generative Artificial Intelligence work?",

@@ -29,3 +29,43 @@ func TestSortPagesByScoreDescending(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectDuplicateURLsDoesNotDependOnResultOrder(t *testing.T) {
+	pages := []*common.Page{
+		{
+			ID:          45483,
+			DuplicateOf: -1,
+		},
+		{
+			ID:           260562,
+			DuplicateOf:  45483,
+			RequestedURL: common.URL("https://raw.githubusercontent.com"),
+		},
+		{
+			ID:           71400,
+			DuplicateOf:  260562,
+			RequestedURL: common.URL("https://gh.io"),
+		},
+	}
+
+	duplicates := collectDuplicateURLs(pages)
+	got := duplicates[45483]
+
+	if len(got) != 2 ||
+		got[0] != "https://raw.githubusercontent.com" ||
+		got[1] != "https://gh.io" {
+		t.Fatalf(
+			"duplicates[45483] = %v, want [https://raw.githubusercontent.com https://gh.io]",
+			got,
+		)
+	}
+}
+
+func TestAveragePostingScanDuration(t *testing.T) {
+	got := averagePostingScanDuration(1800, 3)
+	want := float64(600)
+
+	if got != want {
+		t.Fatalf("averagePostingScanDuration() = %v, want %v", got, want)
+	}
+}

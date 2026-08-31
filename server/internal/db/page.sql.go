@@ -271,22 +271,51 @@ func (q *Queries) GetAllPages(ctx context.Context) ([]Page, error) {
 
 const getPageInfoByID = `-- name: GetPageInfoByID :one
 SELECT
-  id, request_url, title, description, text, status_code, crawled_at, content_hash, has_been_crawled, duplicate_of, found_canonical, final_url, resolved_canonical, favicon, og_title
+  id,
+  request_url,
+  title,
+  description,
+  status_code,
+  crawled_at,
+  content_hash,
+  has_been_crawled,
+  duplicate_of,
+  found_canonical,
+  final_url,
+  resolved_canonical,
+  favicon,
+  og_title
 FROM
   pages
 WHERE
   id = ?
 `
 
-func (q *Queries) GetPageInfoByID(ctx context.Context, id int64) (Page, error) {
+type GetPageInfoByIDRow struct {
+	ID                int64
+	RequestUrl        string
+	Title             sql.NullString
+	Description       sql.NullString
+	StatusCode        sql.NullInt64
+	CrawledAt         sql.NullTime
+	ContentHash       sql.NullInt64
+	HasBeenCrawled    sql.NullInt64
+	DuplicateOf       sql.NullInt64
+	FoundCanonical    sql.NullString
+	FinalUrl          string
+	ResolvedCanonical sql.NullInt64
+	Favicon           sql.NullString
+	OgTitle           sql.NullString
+}
+
+func (q *Queries) GetPageInfoByID(ctx context.Context, id int64) (GetPageInfoByIDRow, error) {
 	row := q.db.QueryRowContext(ctx, getPageInfoByID, id)
-	var i Page
+	var i GetPageInfoByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.RequestUrl,
 		&i.Title,
 		&i.Description,
-		&i.Text,
 		&i.StatusCode,
 		&i.CrawledAt,
 		&i.ContentHash,
@@ -335,13 +364,16 @@ func (q *Queries) GetPageInfoByURL(ctx context.Context, finalUrl string) (Page, 
 
 const getPaginatedPageBatch = `-- name: GetPaginatedPageBatch :many
 SELECT
-  id, title, text
+  id,
+  title,
+  text
 FROM
   pages
 WHERE
   has_been_crawled = TRUE
   AND id > ?
-LIMIT ?
+LIMIT
+  ?
 `
 
 type GetPaginatedPageBatchParams struct {
@@ -395,20 +427,21 @@ func (q *Queries) GetTotalCrawledPageCount(ctx context.Context) (int64, error) {
 }
 
 const setPageInfo = `-- name: SetPageInfo :exec
-INSERT INTO pages (
-  final_url,
-  request_url,
-  title,
-  og_title,
-  favicon,
-  text,
-  description,
-  status_code,
-  crawled_at,
-  has_been_crawled,
-  content_hash,
-  found_canonical
-)
+INSERT INTO
+  pages (
+    final_url,
+    request_url,
+    title,
+    og_title,
+    favicon,
+    text,
+    description,
+    status_code,
+    crawled_at,
+    has_been_crawled,
+    content_hash,
+    found_canonical
+  )
 VALUES
   (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `

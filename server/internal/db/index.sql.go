@@ -31,20 +31,48 @@ INSERT INTO
   index_metadata (
     document_count,
     total_token_count,
-    average_doc_length
+    average_doc_length,
+    documents_read,
+    documents_indexed,
+    body_tokens,
+    title_tokens,
+    unique_terms,
+    total_postings,
+    title_postings,
+    time_elapsed
   )
 VALUES
-  (?, ?, ?)
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type AddIndexMetaParams struct {
 	DocumentCount    int64
 	TotalTokenCount  int64
 	AverageDocLength int64
+	DocumentsRead    int64
+	DocumentsIndexed int64
+	BodyTokens       int64
+	TitleTokens      int64
+	UniqueTerms      int64
+	TotalPostings    int64
+	TitlePostings    int64
+	TimeElapsed      int64
 }
 
 func (q *Queries) AddIndexMeta(ctx context.Context, arg AddIndexMetaParams) error {
-	_, err := q.db.ExecContext(ctx, addIndexMeta, arg.DocumentCount, arg.TotalTokenCount, arg.AverageDocLength)
+	_, err := q.db.ExecContext(ctx, addIndexMeta,
+		arg.DocumentCount,
+		arg.TotalTokenCount,
+		arg.AverageDocLength,
+		arg.DocumentsRead,
+		arg.DocumentsIndexed,
+		arg.BodyTokens,
+		arg.TitleTokens,
+		arg.UniqueTerms,
+		arg.TotalPostings,
+		arg.TitlePostings,
+		arg.TimeElapsed,
+	)
 	return err
 }
 
@@ -130,7 +158,17 @@ func (q *Queries) GetDocumentMetaByPageID(ctx context.Context, pageID int64) (Do
 
 const getLatestIndexMeta = `-- name: GetLatestIndexMeta :one
 SELECT
-  document_count, total_token_count, average_doc_length
+  document_count,
+  total_token_count,
+  average_doc_length,
+  documents_read,
+  documents_indexed,
+  body_tokens,
+  title_tokens,
+  unique_terms,
+  total_postings,
+  title_postings,
+  time_elapsed
 FROM
   index_metadata
 ORDER BY
@@ -143,11 +181,31 @@ type GetLatestIndexMetaRow struct {
 	DocumentCount    int64
 	TotalTokenCount  int64
 	AverageDocLength int64
+	DocumentsRead    int64
+	DocumentsIndexed int64
+	BodyTokens       int64
+	TitleTokens      int64
+	UniqueTerms      int64
+	TotalPostings    int64
+	TitlePostings    int64
+	TimeElapsed      int64
 }
 
 func (q *Queries) GetLatestIndexMeta(ctx context.Context) (GetLatestIndexMetaRow, error) {
 	row := q.db.QueryRowContext(ctx, getLatestIndexMeta)
 	var i GetLatestIndexMetaRow
-	err := row.Scan(&i.DocumentCount, &i.TotalTokenCount, &i.AverageDocLength)
+	err := row.Scan(
+		&i.DocumentCount,
+		&i.TotalTokenCount,
+		&i.AverageDocLength,
+		&i.DocumentsRead,
+		&i.DocumentsIndexed,
+		&i.BodyTokens,
+		&i.TitleTokens,
+		&i.UniqueTerms,
+		&i.TotalPostings,
+		&i.TitlePostings,
+		&i.TimeElapsed,
+	)
 	return i, err
 }

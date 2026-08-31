@@ -7,14 +7,33 @@ import (
 	"github.com/kljensen/snowball"
 )
 
+func isApostrophe(r rune) bool {
+	return r == '\'' || r == '\u2019' || r == '\u2018'
+}
+
 func Tokenize(raw string) []string {
-	var out []string
-
 	raw = strings.ToLower(raw)
+	raw = strings.Map(func(r rune) rune {
+    //sometimes you may get weird web apostrophes so i just convert them to ascii
+		if r == '\u2019' || r == '\u2018' {
+			return '\''
+		}
+		return r
+	}, raw)
 
-	out = strings.FieldsFunc(raw, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '\''
 	})
+	out := make([]string, 0, len(parts))
+
+	for _, p := range parts {
+		p = strings.Trim(p, "'")
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+
 	Normalize(out)
 	return out
 }

@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"context"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -41,24 +42,23 @@ func NewIndexer(log *zap.Logger, cfg *common.Config, pageStore *store.PageStore,
 	}
 }
 
-func (in *Indexer) Get() (map[string]TermData, error) {
+func (in *Indexer) Get(ctx context.Context) (map[string]TermData, *common.IndexStats, error) {
 	terms := in.LoadTermsFromDisk().ToMap()
 
 	if len(terms) == 0 {
-		_, err := in.Generate()
-		if err != nil {
-			return nil, err
+		if err := in.Generate(); err != nil {
+			return nil, nil, err
 		}
-		terms := in.LoadTermsFromDisk()
-
+		terms = in.LoadTermsFromDisk().ToMap()
 		in.PrintSummary()
-		return terms.ToMap(), nil
 	}
 
-	return terms, nil
+	stats := in.indexerStore.LoadLatestIndexMetadata(ctx)
+
+	return terms, stats, nil
 }
 
-func (in *Indexer) Generate() (map[string][]common.Posting, error) {
+func (in *Indexer) Generate() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -74,22 +74,19 @@ func (in *Indexer) Generate() (map[string][]common.Posting, error) {
 	start := time.Now()
 	indexStats := common.IndexStats{}
 
-	pageSearchIndex := 0
 	totalPageCount, err := in.pageStore.GetTotalCrawledPageCount(ctx)
 	if err != nil {
 		in.log.Error("Could not get page count from db", zap.Error(err))
 		in.shutdown(cancel)
 		storeWg.Wait()
-		return in.index.ToMap(), err
+		return err
 	}
 
-	batchSize := totalPageCount / 10
-	if batchSize < 1 {
-		batchSize = 1
-	}
-
+	batchSize := max(totalPageCount/10, 1)
+	pageSearchIndex := 0
 	workerCount := 256
 	workerChan := make(chan []*common.Page, workerCount)
+
 	var workerWg sync.WaitGroup
 
 	in.metrics.DocumentsTotal.Store(totalPageCount)
@@ -126,18 +123,35 @@ func (in *Indexer) Generate() (map[string][]common.Posting, error) {
 	}
 
 	close(workerChan)
+	in.elapsed = time.Since(start)
+
 	if indexStats.DocumentCount > 0 {
 		indexStats.AverageDocLength = float64(indexStats.TotalTokenCount) / float64(indexStats.DocumentCount)
 	}
-	in.indexerStore.AddIndexMetadata(ctx, &indexStats)
+
+	indexStats.DocumentsRead = in.metrics.DocumentsRead.Load()
+	indexStats.DocumentsIndexed = in.metrics.DocumentsIndexed.Load()
+	indexStats.BodyTokens = in.metrics.BodyTokens.Load()
+	indexStats.TitleTokens = in.metrics.TitleTokens.Load()
+	indexStats.UniqueTerms = in.metrics.UniqueTerms.Load()
+	indexStats.TotalPostings = in.metrics.TotalPostings.Load()
+	indexStats.TitlePostings = in.metrics.TitlePostings.Load()
+	indexStats.TimeElapsed = in.elapsed.Milliseconds()
+	in.metrics.TimeElapsed.Store(indexStats.TimeElapsed)
+
 	in.shutdown(cancel)
 	storeWg.Wait()
+	in.indexerStore.AddIndexMetadata(ctx, &indexStats)
 
-	in.elapsed = time.Since(start)
 	if err := DumpIndex(&indexStats, in.index.ToMap()); err != nil {
-		return in.index.ToMap(), err
+		return err
 	}
-	return in.index.ToMap(), nil
+
+	// release the in-memory postings and return the heap to the OS.
+	in.index = common.NewSafeMap[string, []common.Posting]()
+	debug.FreeOSMemory()
+
+	return nil
 }
 
 func (in *Indexer) PrintSummary() {
@@ -185,13 +199,13 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.Documen
 
 		if entry, ok := postingMap[token]; !ok {
 			postingMap[token] = common.Posting{
-				Frequency:    1,
-				PageID:       uint32(page.ID),
-				MatchesTitle: false,
+				BodyFrequency:   1,
+				TitleFrequency:  0,
+				DomainFrequency: 0, PageID: uint32(page.ID),
 			}
 			in.metrics.TotalPostings.Add(1)
 		} else {
-			entry.Frequency += 1
+			entry.BodyFrequency += 1
 			postingMap[token] = entry
 		}
 	}
@@ -199,16 +213,17 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.Documen
 	for _, token := range titleTokens {
 		//TODO: find a way to handle lowercase tokens
 		token = strings.ToLower(token)
+
 		if entry, ok := postingMap[token]; !ok {
 			postingMap[token] = common.Posting{
-				Frequency:    1,
-				PageID:       uint32(page.ID),
-				MatchesTitle: true,
+				BodyFrequency:   0,
+				TitleFrequency:  1,
+				DomainFrequency: 0,
+				PageID:          uint32(page.ID),
 			}
 			in.metrics.TotalPostings.Add(1)
 		} else {
-			entry.Frequency += 1
-			entry.MatchesTitle = true
+			entry.TitleFrequency += 1
 			postingMap[token] = entry
 		}
 		in.metrics.TitlePostings.Add(1)
@@ -217,13 +232,14 @@ func (in *Indexer) Index(ctx context.Context, page *common.Page) *common.Documen
 	for _, token := range domainTokens {
 		if entry, ok := postingMap[token]; !ok {
 			postingMap[token] = common.Posting{
-				Frequency:     1,
-				PageID:        uint32(page.ID),
-				MatchesDomain: true,
+				TitleFrequency:  0,
+				BodyFrequency:   0,
+				DomainFrequency: 1,
+				PageID:          uint32(page.ID),
 			}
 			in.metrics.TotalPostings.Add(1)
 		} else {
-			entry.MatchesDomain = true
+			entry.DomainFrequency += 1
 			postingMap[token] = entry
 		}
 	}
@@ -291,11 +307,11 @@ func (in *Indexer) spawnWorkers(ctx context.Context, count int, info *workerInfo
 	}
 }
 
-func (in *Indexer) LoadFromDisk() *common.SafeMap[string, []common.Posting] {
-	loaded := LoadIndex()
-	index := common.NewPreloadedSafeMap(loaded)
-	return index
-}
+// func (in *Indexer) LoadFromDisk() *common.SafeMap[string, []common.Posting] {
+// 	loaded := LoadIndex()
+// 	index := common.NewPreloadedSafeMap(loaded)
+// 	return index
+// }
 
 func (in *Indexer) LoadTermsFromDisk() *common.SafeMap[string, TermData] {
 	loaded := LoadTerms()

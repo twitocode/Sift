@@ -2,7 +2,7 @@ package ranker
 
 import (
 	"context"
-	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -19,21 +19,24 @@ type Ranker struct {
 	log *zap.Logger
 	cfg *common.Config
 
-	docs         map[uint32]uint32
+	docs  map[uint32]uint32
+	terms map[string]indexer.TermData
+
 	indexerStore *store.IndexerStore
 	pageStore    *store.PageStore
-	terms        map[string]indexer.TermData
-	indexMeta    *common.IndexStats
+
+	indexMeta *common.IndexStats
 
 	pagesCache    *cache.Cache
 	postingReader *mmap.ReaderAt
 }
 
-func NewRanker(log *zap.Logger, cfg *common.Config, terms map[string]indexer.TermData, indexerStore *store.IndexerStore, pageStore *store.PageStore) *Ranker {
+func NewRanker(log *zap.Logger, cfg *common.Config, terms map[string]indexer.TermData, indexMeta *common.IndexStats, indexerStore *store.IndexerStore, pageStore *store.PageStore) *Ranker {
 	return &Ranker{
 		log:           log,
 		cfg:           cfg,
 		terms:         terms,
+		indexMeta:     indexMeta,
 		indexerStore:  indexerStore,
 		pageStore:     pageStore,
 		pagesCache:    cache.New(5*time.Minute, 10*time.Minute),
@@ -51,12 +54,6 @@ func (r *Ranker) LoadDocuments(ctx context.Context) {
 	r.log.Info("Loaded all documents", zap.Int("count", len(docs)))
 }
 
-func (r *Ranker) LoadIndexMeta(ctx context.Context) {
-	meta := r.indexerStore.LoadLatestIndexMetadata(ctx)
-	r.indexMeta = meta
-	r.log.Info("Loaded Recent index meta")
-}
-
 func sortPagesByScore(pages []*common.Page, scores map[uint32]float64) {
 	slices.SortFunc(pages, func(a *common.Page, b *common.Page) int {
 		switch {
@@ -70,7 +67,39 @@ func sortPagesByScore(pages []*common.Page, scores map[uint32]float64) {
 	})
 }
 
-func (r *Ranker) Query(ctx context.Context, query string) []common.SearchResult {
+func collectDuplicateURLs(pages []*common.Page) map[int64][]string {
+	parents := make(map[int64]int64, len(pages))
+	for _, page := range pages {
+		if page.DuplicateOf >= 0 {
+			parents[page.ID] = page.DuplicateOf
+		}
+	}
+
+	duplicates := make(map[int64][]string)
+	for _, page := range pages {
+		if page.DuplicateOf < 0 {
+			continue
+		}
+
+		canonicalID := page.DuplicateOf
+		for range len(parents) {
+			parentID, exists := parents[canonicalID]
+			if !exists {
+				break
+			}
+			canonicalID = parentID
+		}
+
+		duplicates[canonicalID] = append(
+			duplicates[canonicalID],
+			page.RequestedURL.String(),
+		)
+	}
+	return duplicates
+}
+
+func (r *Ranker) Query(ctx context.Context, query string) QueryResult {
+	startTime := time.Now()
 	query = strings.ToLower(query)
 	tokens := indexer.Tokenize(query)
 	scores := make(map[uint32]float64)
@@ -78,6 +107,11 @@ func (r *Ranker) Query(ctx context.Context, query string) []common.SearchResult 
 	//TODO: need a better way to handle cases like 'gItHuB' that dont match tokens without blowing up the index
 
 	candidatesHeap := NewBestCandidateHeap(50)
+	tokenStats := make(map[string]TokenStats)
+
+	var totalPostingScanDuration int64
+	var postingScanCount int
+	pagesQueried := make(map[uint32]struct{})
 
 	for _, token := range tokens {
 		data, ok := r.terms[token]
@@ -86,6 +120,7 @@ func (r *Ranker) Query(ctx context.Context, query string) []common.SearchResult 
 			continue
 		}
 
+		postingStartTime := time.Now()
 		postings := indexer.LoadIndexSection(r.postingReader, data.ByteOffset, data.Count)
 
 		for _, posting := range postings {
@@ -95,17 +130,31 @@ func (r *Ranker) Query(ctx context.Context, query string) []common.SearchResult 
 			}
 
 			tokenCount := r.docs[posting.PageID]
-			score += CalculateBM25(len(postings), tokens, tokenCount, posting.Frequency, r.indexMeta)
-			if posting.MatchesTitle {
-				score += 10
-			}
 
-			if posting.MatchesDomain {
-				score += 50
-			}
+			score += CalculateBM25(len(postings), tokens, tokenCount, posting.BodyFrequency, r.indexMeta)
+			score += math.Pow(4.5, float64(posting.TitleFrequency))
+			score += math.Pow(6.5, float64(posting.DomainFrequency))
 
 			scores[posting.PageID] = score
+
+			if _, ok := pagesQueried[posting.PageID]; !ok {
+				pagesQueried[posting.PageID] = struct{}{}
+			}
 		}
+
+		scanTime := time.Since(postingStartTime).Microseconds()
+
+		if stats, ok := tokenStats[token]; !ok {
+			tokenStats[token] = TokenStats{
+				PostingsCount: data.Count,
+				ScanTime:      scanTime,
+			}
+		} else {
+			stats.ScanTime = scanTime
+			tokenStats[token] = stats
+		}
+		totalPostingScanDuration += scanTime
+		postingScanCount++
 	}
 
 	for id, score := range scores {
@@ -135,11 +184,16 @@ func (r *Ranker) Query(ctx context.Context, query string) []common.SearchResult 
 	sortPagesByScore(results, scores)
 	//logResults(query, results, scores)
 
-	searchResults := make([]common.SearchResult, len(results))
-	for i, result := range results {
+	searchResults := make([]common.SearchResult, 0)
+	duplicates := collectDuplicateURLs(results)
+	for _, result := range results {
+		if result.DuplicateOf > -1 {
+			continue
+		}
+
 		desc := result.Description
 		if len(desc) > 300 {
-			desc = truncateString(result.Description, 40)
+			desc = common.TruncateString(result.Description, 40)
 			if desc[len(desc)-1] == '.' {
 				desc += ".."
 			} else {
@@ -147,34 +201,41 @@ func (r *Ranker) Query(ctx context.Context, query string) []common.SearchResult 
 			}
 		}
 
-		searchResults[i] = common.SearchResult{
-			Title:   result.Title,
-			OGTitle: result.OGTitle,
-			Favicon: result.Favicon.String(),
-			Desc:    desc,
-			Url:     result.FinalURL.String(),
+		d := duplicates[result.ID]
+		if d == nil {
+			d = []string{}
 		}
+
+		searchResults = append(searchResults, common.SearchResult{
+			Title:       result.Title,
+			OGTitle:     result.OGTitle,
+			Favicon:     result.Favicon.String(),
+			Desc:        desc,
+			Url:         result.FinalURL.String(),
+			OriginalUrl: result.RequestedURL.String(),
+			Duplicates:  d,
+			Score:       scores[uint32(result.ID)],
+			TitleTokens: len(indexer.Tokenize(result.Title)),
+			BodyTokens:  len(indexer.Tokenize(result.Text)),
+		})
 	}
-	return searchResults
+
+	out := QueryResult{
+		Results:                     searchResults,
+		Count:                       len(searchResults),
+		TimeElapsed:                 time.Since(startTime).Milliseconds(),
+		TokenStats:                  tokenStats,
+		AveragePostingsScanDuration: averagePostingScanDuration(totalPostingScanDuration, postingScanCount),
+		PossibleResultsQueried:      len(pagesQueried),
+		IndexerMetrics:              ToSimpleIndexerMetrics(r.indexMeta),
+	}
+
+	return out
 }
 
-func logResults(query string, results []*common.Page, scores map[uint32]float64) {
-	fmt.Printf("\nQuery: %s\n", query)
-	fmt.Printf("Results:\n\n")
-	for i, page := range results {
-		if i == 10 {
-			break
-		}
-		fmt.Printf("%.2f: %s\n", scores[uint32(page.ID)], page.Title)
+func averagePostingScanDuration(totalDuration int64, scanCount int) float64 {
+	if scanCount == 0 {
+		return 0
 	}
-}
-
-func truncateString(str string, n int) string {
-	words := strings.Fields(str)
-
-	if len(words) <= n {
-		return str
-	}
-
-	return strings.Join(words[:n], " ")
+	return float64(totalDuration) / float64(scanCount)
 }

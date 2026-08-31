@@ -170,64 +170,75 @@ Loop:
 					skipTextContent = true
 				}
 
-				if token.Data == "body" {
-					insideBody = true
-				}
-
-				if token.Data == "title" {
-					readingTitle = true
-				}
-
-				if token.Data == "meta" {
-					name := getAttr(token, "name")
-					content := getAttr(token, "content")
-					property := getAttr(token, "property")
-
-					if (name == "description" || property == "og:description") && content != "" {
-						out.description = content
+				switch token.Data {
+				case "body":
+					{
+						insideBody = true
+						break
 					}
 
-					if strings.EqualFold(property, "og:title") && content != "" {
-						out.ogTitle = content
-					}
-				}
+				case "meta":
+					{
+						name := getAttr(token, "name")
+						content := getAttr(token, "content")
+						property := getAttr(token, "property")
 
-				if token.Data == "link" {
-					rel := getAttr(token, "rel")
-					href := getAttr(token, "href")
-
-					if rel == "canonical" && href != "" {
-						out.foundCanonical = href
-					}
-
-					if out.favicon == "" && slices.Contains(strings.Fields(strings.ToLower(rel)), "icon") && href != "" {
-						out.favicon = href
-					}
-				}
-
-				if token.Data == "a" {
-					if len(foundUrls) >= p.maxLinksPerPage {
-						if !reachedMaxLinks {
-							p.log.Debug("Reached Max Links", zap.String("url", url.String()))
-							reachedMaxLinks = true
+						if (name == "description" || property == "og:description") && content != "" {
+							out.description = content
 						}
-						continue
+
+						if strings.EqualFold(property, "og:title") && content != "" {
+							out.ogTitle = content
+						}
+						break
 					}
 
-					href := getAttr(token, "href")
+				case "title":
+					{
+						if !insideBody {
+							readingTitle = true
+						}
+						break
+					}
+				case "link":
+					{
+						rel := getAttr(token, "rel")
+						href := getAttr(token, "href")
 
-					if href != "" {
-						resolved, err := common.URL(href).ResolveUrl(url)
-						if err != nil {
+						if rel == "canonical" && href != "" {
+							out.foundCanonical = href
+						}
+
+						if out.favicon == "" && slices.Contains(strings.Fields(strings.ToLower(rel)), "icon") && href != "" {
+							out.favicon = href
+						}
+						break
+					}
+				case "a":
+					{
+						if len(foundUrls) >= p.maxLinksPerPage {
+							if !reachedMaxLinks {
+								p.log.Debug("Reached Max Links", zap.String("url", url.String()))
+								reachedMaxLinks = true
+							}
 							continue
 						}
 
-						if _, ok := seenURLs[resolved]; ok {
-							continue
-						}
+						href := getAttr(token, "href")
 
-						foundUrls = append(foundUrls, resolved)
-						seenURLs[resolved] = struct{}{}
+						if href != "" {
+							resolved, err := common.URL(href).ResolveUrl(url)
+							if err != nil {
+								continue
+							}
+
+							if _, ok := seenURLs[resolved]; ok {
+								continue
+							}
+
+							foundUrls = append(foundUrls, resolved)
+							seenURLs[resolved] = struct{}{}
+						}
 					}
 				}
 			}
