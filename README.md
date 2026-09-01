@@ -1,4 +1,8 @@
-# Sift
+<h1 style="display: flex; align-items: center; justify-content: center;">
+  <img style="margin-right: 10px" src="./client/public/sift.png" align="left" height="46px" alt=""/>
+  <span>Sift</span>
+</h1>
+
 Simple Search Engine
 
 ## But Why?
