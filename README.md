@@ -1,7 +1,13 @@
+
+
+
 <h1 style="display: flex; align-items: center; justify-content: center;">
   <img style="margin-right: 10px" src="./client/public/sift.png" align="left" height="46px" alt=""/>
   <span>Sift</span>
 </h1>
+
+https://github.com/user-attachments/assets/8ea10a8c-c268-4f01-bf11-9867c7d040ec
+
 
 Simple Search Engine
 
