@@ -18,32 +18,33 @@ interface MyRouterContext {
 }
 
 export const Route = createRootRouteWithContext<MyRouterContext>()({
-	head: () => ({
-		meta: [
-			{
-				charSet: "utf-8",
-			},
-			{
-				name: "viewport",
-				content: "width=device-width, initial-scale=1",
-			},
-			{
-				title: "TanStack Start Starter",
-			},
-		],
-		links: [
-			{
-				rel: "stylesheet",
-				href: appCss,
-			},
-		],
-		scripts: [
-			{
-				children: themeInitScript,
-			},
-		],
-	}),
-	shellComponent: RootDocument,
+  head: () => ({
+    meta: [
+      {
+        charSet: "utf-8",
+      },
+      {
+        name: "viewport",
+        content: "width=device-width, initial-scale=1",
+      },
+      {
+        title: "TanStack Start Starter",
+      },
+    ],
+    links: [
+      {
+        rel: "stylesheet",
+        href: appCss,
+      },
+      { rel: "icon", href: "/favicon.ico" },
+    ],
+    scripts: [
+      {
+        children: themeInitScript,
+      },
+    ],
+  }),
+  shellComponent: RootDocument,
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
@@ -63,6 +64,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 					<TanStackDevtools
 						config={{
 							position: "bottom-left",
+
 						}}
 						plugins={[
 							{
