@@ -6,10 +6,9 @@
   <span>Sift</span>
 </h1>
 
-https://github.com/user-attachments/assets/8ea10a8c-c268-4f01-bf11-9867c7d040ec
-
-
 Simple Search Engine
+
+https://github.com/user-attachments/assets/8ea10a8c-c268-4f01-bf11-9867c7d040ec
 
 ## But Why?
 
